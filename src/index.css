@@ -1,0 +1,125 @@
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;0,700;1,300;1,400;1,500;1,600;1,700&family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&family=Playfair+Display:ital,wght@0,400;0,700;1,400&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-serif-display: "Cormorant Garamond", serif;
+  --font-serif-body: "Libre Baskerville", serif;
+  --font-playfair: "Playfair Display", serif;
+  
+  --color-journal-cream: #f5f5f0;
+  --color-journal-paper: #fffef5;
+  --color-journal-ink: #2c2c2c;
+  --color-journal-accent: #5A5A40;
+}
+
+body {
+  background-color: var(--color-journal-cream);
+  color: var(--color-journal-ink);
+  font-family: var(--font-serif-body);
+  transition: background-color 0.5s ease;
+}
+
+/* Texture Variants */
+.texture-cream { background-color: #fffef5; background-image: radial-gradient(#e5e5e5 0.5px, transparent 0.5px); background-size: 20px 20px; }
+.texture-white { background-color: #ffffff; background-image: none; }
+.texture-parchment { background-color: #fcf5e5; background-image: url("https://www.transparenttextures.com/patterns/old-mathematics.png"); }
+.texture-linen { background-color: #f4f4f4; background-image: url("https://www.transparenttextures.com/patterns/linen-design.png"); }
+
+/* Border Variants */
+.border-ornate { 
+  border: 2px solid rgba(90, 90, 64, 0.5); 
+  position: relative; 
+  box-shadow: inset 0 0 0 4px rgba(90, 90, 64, 0.1);
+}
+.border-ornate::before { 
+  content: ""; 
+  position: absolute; 
+  top: 8px; left: 8px; right: 8px; bottom: 8px; 
+  border: 1px solid rgba(90, 90, 64, 0.3); 
+  pointer-events: none; 
+}
+.border-ornate::after {
+  content: "";
+  position: absolute;
+  top: 16px; left: 16px; right: 16px; bottom: 16px;
+  border: 1px double rgba(90, 90, 64, 0.2);
+  pointer-events: none;
+}
+
+.notebook-cover-border {
+  border: 2px solid #5A5A40;
+  position: relative;
+  padding: 40px;
+}
+
+.notebook-cover-border::before {
+  content: "";
+  position: absolute;
+  top: 4px; left: 4px; right: 4px; bottom: 4px;
+  border: 1px solid #5A5A40;
+}
+
+.notebook-spine {
+  background: linear-gradient(to right, #1a1a1a, #333, #1a1a1a);
+  box-shadow: 2px 0 10px rgba(0,0,0,0.3);
+}
+
+.page-shadow {
+  box-shadow: -10px 0 20px rgba(0,0,0,0.05), 10px 0 20px rgba(0,0,0,0.05);
+}
+
+.vintage-ornament {
+  background-image: url("data:image/svg+xml,%3Csvg width='100' height='40' viewBox='0 0 100 40' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M10 20 C 20 10, 40 10, 50 20 C 60 30, 80 30, 90 20' stroke='%235A5A40' fill='transparent' stroke-width='1'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: center;
+}
+
+/* Font Variants */
+.font-serif-display { font-family: var(--font-serif-display); }
+.font-serif-body { font-family: var(--font-serif-body); }
+.font-playfair { font-family: var(--font-playfair); }
+
+.journal-page {
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1), inset 0 0 100px rgba(0, 0, 0, 0.02);
+  transition: all 0.5s ease;
+  border: 1px solid rgba(90, 90, 64, 0.2);
+}
+
+@keyframes bounce-subtle {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3px); }
+}
+
+.animate-bounce-subtle {
+  animation: bounce-subtle 2s infinite ease-in-out;
+}
+
+.page-curl {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 40px;
+  height: 40px;
+  background: linear-gradient(135deg, transparent 50%, rgba(0,0,0,0.05) 50%, rgba(0,0,0,0.1) 100%);
+  border-bottom-right-radius: 8px;
+  pointer-events: none;
+}
+
+.notebook-inner-shadow {
+  box-shadow: inset 10px 0 15px -10px rgba(0,0,0,0.2);
+  background: linear-gradient(to right, rgba(0,0,0,0.05), transparent);
+}
+
+/* Custom scrollbar for that vintage feel */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-journal-cream);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-journal-accent);
+  border-radius: 10px;
+}
