@@ -32,37 +32,6 @@ import { NotebookCover } from './components/NotebookCover';
 import { supabase, isSupabaseConfigured } from './lib/supabase';
 import { User } from '@supabase/supabase-js';
 
-type LegacyEntry = Entry & { reflection?: string };
-
-const DEFAULT_THEME: ThemeConfig = {
-  texture: 'cream',
-  border: 'ornate',
-  font: 'serif-display',
-  coverColor: '#f5f5f0',
-};
-
-const DEFAULT_NOTEBOOK_CONFIG: NotebookConfig = {
-  title: 'NOTE BOOK',
-  year: new Date().getFullYear(),
-  owner: 'Uyen',
-};
-
-const TEXTURES: ThemeConfig['texture'][] = ['cream', 'white', 'parchment', 'linen'];
-const FONTS: Array<{ id: ThemeConfig['font']; name: string }> = [
-  { id: 'serif-display', name: 'Cormorant' },
-  { id: 'serif-body', name: 'Baskerville' },
-  { id: 'playfair', name: 'Playfair' },
-];
-
-function getErrorMessage(error: unknown) {
-  return error instanceof Error ? error.message : 'Unknown error';
-}
-
-function getReflectionPrompt(entry: Partial<Entry> | LegacyEntry | null | undefined) {
-  if (!entry) return null;
-  return entry.reflectionQuestion ?? ('reflection' in entry ? entry.reflection ?? null : null);
-}
-
 export default function App() {
   const [entries, setEntries] = useState<Entry[]>(() => {
     try {
@@ -77,18 +46,36 @@ export default function App() {
   const [theme, setTheme] = useState<ThemeConfig>(() => {
     try {
       const saved = localStorage.getItem('soul_journal_theme');
-      return saved ? JSON.parse(saved) : DEFAULT_THEME;
-    } catch {
-      return DEFAULT_THEME;
+      return saved ? JSON.parse(saved) : {
+        texture: 'cream',
+        border: 'ornate',
+        font: 'serif-display',
+        coverColor: '#f5f5f0'
+      };
+    } catch (e) {
+      return {
+        texture: 'cream',
+        border: 'ornate',
+        font: 'serif-display',
+        coverColor: '#f5f5f0'
+      };
     }
   });
 
   const [notebookConfig, setNotebookConfig] = useState<NotebookConfig>(() => {
     try {
       const saved = localStorage.getItem('soul_journal_config');
-      return saved ? JSON.parse(saved) : DEFAULT_NOTEBOOK_CONFIG;
-    } catch {
-      return DEFAULT_NOTEBOOK_CONFIG;
+      return saved ? JSON.parse(saved) : {
+        title: 'NOTE BOOK',
+        year: new Date().getFullYear(),
+        owner: 'Uyen'
+      };
+    } catch (e) {
+      return {
+        title: 'NOTE BOOK',
+        year: new Date().getFullYear(),
+        owner: 'Uyen'
+      };
     }
   });
 
@@ -221,8 +208,8 @@ export default function App() {
       });
       if (error) throw error;
       showToast('Welcome back! ♡');
-    } catch (error: unknown) {
-      showToast(`${getErrorMessage(error)} ♡`);
+    } catch (error: any) {
+      showToast(error.message + ' ♡');
     } finally {
       setIsSyncing(false);
     }
@@ -245,8 +232,8 @@ export default function App() {
       });
       if (error) throw error;
       showToast('Check your email for confirmation! ♡');
-    } catch (error: unknown) {
-      showToast(`${getErrorMessage(error)} ♡`);
+    } catch (error: any) {
+      showToast(error.message + ' ♡');
     } finally {
       setIsSyncing(false);
     }
@@ -282,8 +269,8 @@ export default function App() {
       if (error) throw error;
       showToast('Password reset email sent! ♡');
       setAuthMode('login');
-    } catch (error: unknown) {
-      showToast(`${getErrorMessage(error)} ♡`);
+    } catch (error: any) {
+      showToast(error.message + ' ♡');
     } finally {
       setIsSyncing(false);
     }
@@ -304,8 +291,8 @@ export default function App() {
       showToast('Password updated successfully! ♡');
       setAuthMode('login');
       setAuthPassword('');
-    } catch (error: unknown) {
-      showToast(`${getErrorMessage(error)} ♡`);
+    } catch (error: any) {
+      showToast(error.message + ' ♡');
     } finally {
       setIsSyncing(false);
     }
@@ -324,7 +311,7 @@ export default function App() {
         setCurrentCategory(existingEntry.category as AffirmationCategory);
         
         // Handle migration from old 'reflection' field to 'reflectionQuestion'
-        const question = getReflectionPrompt(existingEntry);
+        const question = existingEntry.reflectionQuestion || (existingEntry as any).reflection || null;
         setReflectionQuestion(question);
         setReflectionAnswer(existingEntry.reflectionAnswer || '');
         setShowReflection(!!question);
@@ -367,6 +354,7 @@ export default function App() {
     setCurrentDate(now);
     
     // Check if an entry already exists for today
+    const todayStr = format(now, 'yyyy-MM-dd');
     const todayEntry = entries.find(e => isSameDay(new Date(e.date), now));
     
     if (todayEntry) {
@@ -375,7 +363,7 @@ export default function App() {
       setCurrentMood(todayEntry.mood as Mood);
       setCurrentCategory(todayEntry.category as AffirmationCategory);
       
-      const question = getReflectionPrompt(todayEntry);
+      const question = todayEntry.reflectionQuestion || (todayEntry as any).reflection || null;
       setReflectionQuestion(question);
       setReflectionAnswer(todayEntry.reflectionAnswer || '');
       setShowReflection(!!question);
@@ -412,7 +400,7 @@ export default function App() {
         mood: currentMood!,
         category,
         affirmations: suggested,
-        mantra: currentEntry.mantra ?? { text: '', author: '' },
+        mantra: currentEntry.mantra as any,
         gratitude: currentEntry.gratitude as string[],
         reflectionQuestion: reflectionQuestion || undefined,
         reflectionAnswer: reflectionAnswer || '',
@@ -460,7 +448,7 @@ export default function App() {
         mood: currentMood,
         category: currentCategory,
         affirmations: currentEntry.affirmations as string[] || [],
-        mantra: currentEntry.mantra ?? { text: '', author: '' },
+        mantra: currentEntry.mantra as any || { text: '', author: '' },
         gratitude: currentEntry.gratitude as string[] || [],
         reflectionQuestion: reflectionQuestion || undefined,
         reflectionAnswer: reflectionAnswer || undefined,
@@ -487,9 +475,9 @@ export default function App() {
       }
 
       showToast('Journal entry saved. ♡');
-    } catch (error: unknown) {
+    } catch (error: any) {
       console.error("Failed to save entry:", error);
-      const message = getErrorMessage(error);
+      const message = error?.message || "Unknown error";
       showToast(`Error saving entry: ${message}. ♡`);
     }
   };
@@ -524,12 +512,27 @@ export default function App() {
 
   const handleRefreshMantra = async () => {
     setIsGenerating(true);
-    const dailyMantra = await generateDailyMantra();
-    setCurrentEntry(prev => ({ 
-      ...prev, 
-      mantra: dailyMantra
-    }));
-    setIsGenerating(false);
+    try {
+      const dailyMantra = await generateDailyMantra();
+      setCurrentEntry(prev => ({ 
+        ...prev, 
+        mantra: dailyMantra
+      }));
+
+      // Also refresh the reflection question if it's currently active
+      if (showReflection) {
+        const gratitude = (currentEntry.gratitude as string[]) || ['', '', ''];
+        const q = await generateReflectionQuestion(gratitude, currentMood || 'peaceful');
+        setReflectionQuestion(q);
+      }
+      
+      showToast('Mantra and reflection refreshed. ♡');
+    } catch (error) {
+      console.error("Failed to refresh mantra:", error);
+      showToast('Failed to refresh. ♡');
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
   const uploadPhotoToSupabase = async (base64: string, entryId: string): Promise<string | null> => {
@@ -1464,10 +1467,10 @@ export default function App() {
                             <div>
                               <p className="text-[10px] uppercase tracking-widest opacity-50 mb-2">Paper Texture</p>
                               <div className="grid grid-cols-4 gap-2">
-                                {TEXTURES.map((t) => (
+                                {['cream', 'white', 'parchment', 'linen'].map((t) => (
                                   <button
                                     key={t}
-                                    onClick={() => setTheme({ ...theme, texture: t })}
+                                    onClick={() => setTheme({ ...theme, texture: t as any })}
                                     className={cn(
                                       "h-12 rounded-lg border transition-all capitalize text-[10px]",
                                       theme.texture === t ? "border-journal-accent ring-1 ring-journal-accent" : "border-journal-accent/10",
@@ -1484,10 +1487,14 @@ export default function App() {
                             <div>
                               <p className="text-[10px] uppercase tracking-widest opacity-50 mb-2">Typography</p>
                               <div className="grid grid-cols-3 gap-2">
-                                {FONTS.map((f) => (
+                                {[
+                                  { id: 'serif-display', name: 'Cormorant' },
+                                  { id: 'serif-body', name: 'Baskerville' },
+                                  { id: 'playfair', name: 'Playfair' }
+                                ].map((f) => (
                                   <button
                                     key={f.id}
-                                    onClick={() => setTheme({ ...theme, font: f.id })}
+                                    onClick={() => setTheme({ ...theme, font: f.id as any })}
                                     className={cn(
                                       "h-12 rounded-lg border transition-all text-[10px]",
                                       theme.font === f.id ? "border-journal-accent ring-1 ring-journal-accent" : "border-journal-accent/10",

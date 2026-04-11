@@ -64,7 +64,8 @@ export async function generateReflectionQuestion(gratitude: string[], mood: Mood
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: `The user is feeling ${mood}. They are grateful for: "${gratitude.join(", ")}". 
-      Ask one gentle, mood-specific reflection question to help them explore these feelings further. 
+      Ask one unique, gentle, and mood-specific reflection question to help them explore these feelings further. 
+      Ensure the question is different from standard ones. 
       Keep it short, poetic, and wise.`,
     });
 
@@ -104,7 +105,8 @@ export async function generateDailyMantra() {
   try {
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
-      contents: `Generate a soulful, powerful daily mantra or quote from a famous philosopher (like Marcus Aurelius, Seneca, Rumi, Jung) or a modern self-help author (like Brianna Wiest, Viktor Frankl). 
+      contents: `Generate a unique, soulful, and powerful daily mantra or quote from a famous philosopher (like Marcus Aurelius, Seneca, Rumi, Jung) or a modern self-help author (like Brianna Wiest, Viktor Frankl). 
+      IMPORTANT: Ensure this is a different quote from common ones. 
       Include the quote text, the author, and a brief (1-2 sentence) explanation of its soulful meaning.
       Return it as a JSON object with keys: "text", "author", and "context".`,
       config: {
