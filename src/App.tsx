@@ -21,36 +21,62 @@ import {
   Settings,
   Palette,
   Type as TypeIcon,
-  Square
+  Square,
+  Camera,
+  Image as ImageIcon
 } from 'lucide-react';
 import { cn } from './lib/utils';
-import { Entry, Mood, MOODS, MANTRAS, AffirmationCategory, AFFIRMATION_CATEGORIES, ThemeConfig, NotebookConfig } from './types';
-import { generateAffirmations, generateReflectionQuestion, generateMantraExplanation } from './services/ai';
+import { Entry, Mood, MOODS, AffirmationCategory, AFFIRMATION_CATEGORIES, ThemeConfig, NotebookConfig } from './types';
+import { generateAffirmations, generateReflectionQuestion, generateMantraExplanation, generateDailyMantra } from './services/ai';
 import { NotebookCover } from './components/NotebookCover';
+import { supabase, isSupabaseConfigured } from './lib/supabase';
+import { User } from '@supabase/supabase-js';
 
 export default function App() {
   const [entries, setEntries] = useState<Entry[]>(() => {
-    const saved = localStorage.getItem('soul_journal_entries');
-    return saved ? JSON.parse(saved) : [];
+    try {
+      const saved = localStorage.getItem('soul_journal_entries');
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      console.error("Failed to load entries:", e);
+      return [];
+    }
   });
   
   const [theme, setTheme] = useState<ThemeConfig>(() => {
-    const saved = localStorage.getItem('soul_journal_theme');
-    return saved ? JSON.parse(saved) : {
-      texture: 'cream',
-      border: 'ornate',
-      font: 'serif-display',
-      coverColor: '#f5f5f0'
-    };
+    try {
+      const saved = localStorage.getItem('soul_journal_theme');
+      return saved ? JSON.parse(saved) : {
+        texture: 'cream',
+        border: 'ornate',
+        font: 'serif-display',
+        coverColor: '#f5f5f0'
+      };
+    } catch (e) {
+      return {
+        texture: 'cream',
+        border: 'ornate',
+        font: 'serif-display',
+        coverColor: '#f5f5f0'
+      };
+    }
   });
 
   const [notebookConfig, setNotebookConfig] = useState<NotebookConfig>(() => {
-    const saved = localStorage.getItem('soul_journal_config');
-    return saved ? JSON.parse(saved) : {
-      title: 'NOTE BOOK',
-      year: new Date().getFullYear(),
-      owner: 'Uyen'
-    };
+    try {
+      const saved = localStorage.getItem('soul_journal_config');
+      return saved ? JSON.parse(saved) : {
+        title: 'NOTE BOOK',
+        year: new Date().getFullYear(),
+        owner: 'Uyen'
+      };
+    } catch (e) {
+      return {
+        title: 'NOTE BOOK',
+        year: new Date().getFullYear(),
+        owner: 'Uyen'
+      };
+    }
   });
 
   const [view, setView] = useState<'cover' | 'today' | 'history' | 'mood-check' | 'category-select' | 'settings'>('cover');
@@ -62,27 +88,215 @@ export default function App() {
   const [currentEntry, setCurrentEntry] = useState<Partial<Entry>>({
     affirmations: ['', '', ''],
     gratitude: ['', '', ''],
-    mantra: MANTRAS[Math.floor(Math.random() * MANTRAS.length)]
+    mantra: {
+      text: "The happiness of your life depends upon the quality of your thoughts.",
+      author: "Marcus Aurelius",
+      context: "A reminder that our internal perspective shapes our external reality."
+    },
+    photos: []
   });
   
   const [isGenerating, setIsGenerating] = useState(false);
   const [reflectionQuestion, setReflectionQuestion] = useState<string | null>(null);
   const [reflectionAnswer, setReflectionAnswer] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [user, setUser] = useState<User | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authMode, setAuthMode] = useState<'login' | 'signup' | 'reset'>('login');
   const [showReflection, setShowReflection] = useState(false);
   const [autoReflection, setAutoReflection] = useState(false);
+  const [toast, setToast] = useState<{ show: boolean; message: string }>({ show: false, message: '' });
+
+  const showToast = (message: string) => {
+    setToast({ show: true, message });
+    setTimeout(() => setToast({ show: false, message: '' }), 3000);
+  };
 
   useEffect(() => {
-    localStorage.setItem('soul_journal_entries', JSON.stringify(entries));
+    try {
+      localStorage.setItem('soul_journal_entries', JSON.stringify(entries));
+    } catch (error) {
+      console.error("Failed to save entries to localStorage:", error);
+      if (error instanceof Error && error.name === 'QuotaExceededError') {
+        showToast("Storage limit reached. Try removing some photos. ♡");
+      }
+    }
   }, [entries]);
 
   useEffect(() => {
-    localStorage.setItem('soul_journal_theme', JSON.stringify(theme));
+    try {
+      localStorage.setItem('soul_journal_theme', JSON.stringify(theme));
+    } catch (error) {
+      console.error("Failed to save theme to localStorage:", error);
+    }
   }, [theme]);
 
   useEffect(() => {
-    localStorage.setItem('soul_journal_config', JSON.stringify(notebookConfig));
+    try {
+      localStorage.setItem('soul_journal_config', JSON.stringify(notebookConfig));
+    } catch (error) {
+      console.error("Failed to save config to localStorage:", error);
+    }
   }, [notebookConfig]);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+    }).catch(err => {
+      console.error("Supabase session error:", err);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      setUser(session?.user ?? null);
+      if (event === 'PASSWORD_RECOVERY') {
+        setAuthMode('reset');
+        setView('settings');
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (user && isSupabaseConfigured) {
+      fetchEntries();
+    }
+  }, [user]);
+
+  const fetchEntries = async () => {
+    if (!isSupabaseConfigured) return;
+    setIsSyncing(true);
+    try {
+      const { data, error } = await supabase
+        .from('entries')
+        .select('*')
+        .order('date', { ascending: false });
+
+      if (error) throw error;
+      if (data) {
+        setEntries(data);
+        localStorage.setItem('soul_journal_entries', JSON.stringify(data));
+      }
+    } catch (error) {
+      console.error('Error fetching entries:', error);
+      if (error instanceof Error && error.message.includes('Failed to fetch')) {
+        showToast('Network error: Could not connect to cloud. ♡');
+      }
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const handleLogin = async () => {
+    if (!isSupabaseConfigured) {
+      showToast('Cloud sync is not configured yet. ♡');
+      return;
+    }
+    if (!authEmail || !authPassword) {
+      showToast('Please enter email and password. ♡');
+      return;
+    }
+    setIsSyncing(true);
+    try {
+      const { error } = await supabase.auth.signInWithPassword({
+        email: authEmail,
+        password: authPassword,
+      });
+      if (error) throw error;
+      showToast('Welcome back! ♡');
+    } catch (error: any) {
+      showToast(error.message + ' ♡');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const handleSignUp = async () => {
+    if (!isSupabaseConfigured) {
+      showToast('Cloud sync is not configured yet. ♡');
+      return;
+    }
+    if (!authEmail || !authPassword) {
+      showToast('Please enter email and password. ♡');
+      return;
+    }
+    setIsSyncing(true);
+    try {
+      const { error } = await supabase.auth.signUp({
+        email: authEmail,
+        password: authPassword,
+      });
+      if (error) throw error;
+      showToast('Check your email for confirmation! ♡');
+    } catch (error: any) {
+      showToast(error.message + ' ♡');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    if (!isSupabaseConfigured) return;
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
+      setEntries([]);
+      localStorage.removeItem('soul_journal_entries');
+      showToast('Logged out. ♡');
+    } catch (error) {
+      showToast('Logout failed. ♡');
+    }
+  };
+
+  const handleResetPassword = async () => {
+    if (!isSupabaseConfigured) {
+      showToast('Cloud sync is not configured yet. ♡');
+      return;
+    }
+    if (!authEmail) {
+      showToast('Please enter your email. ♡');
+      return;
+    }
+    setIsSyncing(true);
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(authEmail, {
+        redirectTo: window.location.origin,
+      });
+      if (error) throw error;
+      showToast('Password reset email sent! ♡');
+      setAuthMode('login');
+    } catch (error: any) {
+      showToast(error.message + ' ♡');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const handleUpdatePassword = async () => {
+    if (!isSupabaseConfigured) return;
+    if (!authPassword) {
+      showToast('Please enter a new password. ♡');
+      return;
+    }
+    setIsSyncing(true);
+    try {
+      const { error } = await supabase.auth.updateUser({
+        password: authPassword
+      });
+      if (error) throw error;
+      showToast('Password updated successfully! ♡');
+      setAuthMode('login');
+      setAuthPassword('');
+    } catch (error: any) {
+      showToast(error.message + ' ♡');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   const dateStr = format(currentDate, 'yyyy-MM-dd');
   const existingEntry = useMemo(() => 
@@ -115,28 +329,20 @@ export default function App() {
         }
       } else {
         // Reset for new day
-        const randomMantra = MANTRAS[Math.floor(Math.random() * MANTRAS.length)];
+        setIsGenerating(true);
+        const dailyMantra = await generateDailyMantra();
         setCurrentEntry({
           affirmations: ['', '', ''],
           gratitude: ['', '', ''],
-          mantra: randomMantra
+          mantra: dailyMantra,
+          photos: []
         });
         setCurrentMood(null);
         setCurrentCategory(null);
         setReflectionQuestion(null);
         setReflectionAnswer('');
         setShowReflection(false);
-
-        // Auto-generate explanation for the initial random mantra if it's missing
-        if (!randomMantra.context) {
-          setIsGenerating(true);
-          const explanation = await generateMantraExplanation(randomMantra.text, randomMantra.author);
-          setCurrentEntry(prev => ({
-            ...prev,
-            mantra: { ...randomMantra, context: explanation }
-          }));
-          setIsGenerating(false);
-        }
+        setIsGenerating(false);
       }
     };
 
@@ -168,6 +374,13 @@ export default function App() {
     }
   };
 
+  const generateId = () => {
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+      return crypto.randomUUID();
+    }
+    return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+  };
+
   const handleMoodSelect = (mood: Mood) => {
     setCurrentMood(mood);
     setView('category-select');
@@ -182,7 +395,7 @@ export default function App() {
       const suggested = await generateAffirmations(category);
       
       const newEntry: Entry = {
-        id: crypto.randomUUID(),
+        id: generateId(),
         date: currentDate.toISOString(),
         mood: currentMood!,
         category,
@@ -190,10 +403,11 @@ export default function App() {
         mantra: currentEntry.mantra as any,
         gratitude: currentEntry.gratitude as string[],
         reflectionQuestion: reflectionQuestion || undefined,
-        reflectionAnswer: reflectionAnswer || ''
+        reflectionAnswer: reflectionAnswer || '',
+        photos: []
       };
 
-      setEntries([newEntry, ...entries]);
+      setEntries(prev => [newEntry, ...prev]);
       setCurrentEntry(newEntry);
     } catch (error) {
       console.error("Failed to generate affirmations:", error);
@@ -202,25 +416,70 @@ export default function App() {
     }
   };
 
-  const handleSave = () => {
-    const newEntry: Entry = {
-      id: existingEntry?.id || crypto.randomUUID(),
-      date: currentDate.toISOString(),
-      mood: currentMood!,
-      category: currentCategory!,
-      affirmations: currentEntry.affirmations as string[],
-      mantra: currentEntry.mantra as any,
-      gratitude: currentEntry.gratitude as string[],
-      reflectionQuestion: reflectionQuestion || undefined,
-      reflectionAnswer: reflectionAnswer || undefined
-    };
-
-    if (existingEntry) {
-      setEntries(entries.map(e => e.id === existingEntry.id ? newEntry : e));
-    } else {
-      setEntries([newEntry, ...entries]);
+  const handleSave = async () => {
+    if (!currentMood || !currentCategory) {
+      showToast('Please select a mood and category first. ♡');
+      return;
     }
-    alert('Journal entry saved. ♡');
+
+    try {
+      let photosToSave = currentEntry.photos || [];
+      const entryId = existingEntry?.id || generateId();
+
+      // If logged in, upload base64 photos to Supabase Storage
+      if (user && isSupabaseConfigured) {
+        showToast('Syncing with cloud... ♡');
+        const uploadedPhotos = await Promise.all(
+          photosToSave.map(async (photo) => {
+            // Only upload if it's a base64 string (newly added)
+            if (photo.startsWith('data:image')) {
+              const url = await uploadPhotoToSupabase(photo, entryId);
+              return url || photo;
+            }
+            return photo;
+          })
+        );
+        photosToSave = uploadedPhotos.filter(p => p !== null) as string[];
+      }
+
+      const newEntry: Entry = {
+        id: entryId,
+        date: currentDate.toISOString(),
+        mood: currentMood,
+        category: currentCategory,
+        affirmations: currentEntry.affirmations as string[] || [],
+        mantra: currentEntry.mantra as any || { text: '', author: '' },
+        gratitude: currentEntry.gratitude as string[] || [],
+        reflectionQuestion: reflectionQuestion || undefined,
+        reflectionAnswer: reflectionAnswer || undefined,
+        photos: photosToSave
+      };
+
+      // Local update
+      if (existingEntry) {
+        setEntries(prev => prev.map(e => e.id === existingEntry.id ? newEntry : e));
+      } else {
+        setEntries(prev => [newEntry, ...prev]);
+      }
+
+      // Supabase sync
+      if (user && isSupabaseConfigured) {
+        const { error } = await supabase
+          .from('entries')
+          .upsert({
+            ...newEntry,
+            user_id: user.id
+          });
+        
+        if (error) throw error;
+      }
+
+      showToast('Journal entry saved. ♡');
+    } catch (error: any) {
+      console.error("Failed to save entry:", error);
+      const message = error?.message || "Unknown error";
+      showToast(`Error saving entry: ${message}. ♡`);
+    }
   };
 
   const handlePrevDay = () => {
@@ -253,18 +512,99 @@ export default function App() {
 
   const handleRefreshMantra = async () => {
     setIsGenerating(true);
-    const randomMantra = MANTRAS[Math.floor(Math.random() * MANTRAS.length)];
-    let explanation = randomMantra.context;
-    
-    if (!explanation) {
-      explanation = await generateMantraExplanation(randomMantra.text, randomMantra.author);
-    }
-    
+    const dailyMantra = await generateDailyMantra();
     setCurrentEntry(prev => ({ 
       ...prev, 
-      mantra: { ...randomMantra, context: explanation } 
+      mantra: dailyMantra
     }));
     setIsGenerating(false);
+  };
+
+  const uploadPhotoToSupabase = async (base64: string, entryId: string): Promise<string | null> => {
+    if (!user || !isSupabaseConfigured) return null;
+    try {
+      // Convert base64 to blob
+      const res = await fetch(base64);
+      const blob = await res.blob();
+      
+      const fileName = `${user.id}/${entryId}/${Date.now()}.jpg`;
+      const { data, error } = await supabase.storage
+        .from('photos')
+        .upload(fileName, blob, {
+          contentType: 'image/jpeg',
+          upsert: true
+        });
+
+      if (error) throw error;
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('photos')
+        .getPublicUrl(data.path);
+
+      return publicUrl;
+    } catch (error) {
+      console.error('Error uploading photo:', error);
+      return null;
+    }
+  };
+
+  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
+
+    const currentPhotos = currentEntry.photos || [];
+    if (currentPhotos.length >= 3) {
+      showToast('Maximum 3 photos allowed per entry. ♡');
+      return;
+    }
+
+    Array.from(files).slice(0, 3 - currentPhotos.length).forEach((file: File) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const MAX_WIDTH = 800;
+          const MAX_HEIGHT = 800;
+          let width = img.width;
+          let height = img.height;
+
+          if (width > height) {
+            if (width > MAX_WIDTH) {
+              height *= MAX_WIDTH / width;
+              width = MAX_WIDTH;
+            }
+          } else {
+            if (height > MAX_HEIGHT) {
+              width *= MAX_HEIGHT / height;
+              height = MAX_HEIGHT;
+            }
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx?.drawImage(img, 0, 0, width, height);
+          
+          // Compress to 0.7 quality to save significant space
+          const compressedBase64 = canvas.toDataURL('image/jpeg', 0.7);
+          
+          setCurrentEntry(prev => ({
+            ...prev,
+            photos: [...(prev.photos || []), compressedBase64]
+          }));
+        };
+        img.src = reader.result as string;
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handleRemovePhoto = (index: number) => {
+    setCurrentEntry(prev => ({
+      ...prev,
+      photos: (prev.photos || []).filter((_, i) => i !== index)
+    }));
   };
 
   const handleGratitudeChange = (index: number, value: string) => {
@@ -710,6 +1050,75 @@ export default function App() {
                         </div>
                       )}
 
+                      {/* Photos Section */}
+                      <section className="mb-12">
+                        <div className="flex justify-between items-center mb-6">
+                          <h3 className="font-serif-display text-xl italic flex items-center gap-2">
+                            <Camera size={16} className="text-journal-accent" />
+                            Soulful Moments
+                          </h3>
+                          {(currentEntry.photos?.length || 0) < 3 && (
+                            <label className="cursor-pointer p-2 hover:bg-journal-accent/5 rounded-full transition-colors">
+                              <Plus size={16} className="text-journal-accent" />
+                              <input 
+                                type="file" 
+                                accept="image/*" 
+                                multiple 
+                                className="hidden" 
+                                onChange={handlePhotoUpload}
+                              />
+                            </label>
+                          )}
+                        </div>
+                        
+                        <div className="flex flex-wrap gap-6 justify-center">
+                          {currentEntry.photos && currentEntry.photos.length > 0 ? (
+                            currentEntry.photos.map((photo, i) => (
+                              <motion.div
+                                key={i}
+                                initial={{ opacity: 0, scale: 0.9, rotate: i % 2 === 0 ? -2 : 2 }}
+                                animate={{ opacity: 1, scale: 1, rotate: i % 2 === 0 ? -2 : 2 }}
+                                whileHover={{ scale: 1.05, rotate: 0, zIndex: 10 }}
+                                className="bg-white p-3 pb-10 shadow-xl border border-black/5 relative group"
+                                style={{ width: '160px' }}
+                              >
+                                <div className="aspect-square overflow-hidden bg-gray-100">
+                                  <img 
+                                    src={photo} 
+                                    alt={`Moment ${i + 1}`} 
+                                    className="w-full h-full object-cover"
+                                    referrerPolicy="no-referrer"
+                                  />
+                                </div>
+                                <button
+                                  onClick={() => handleRemovePhoto(i)}
+                                  className="absolute top-1 right-1 bg-black/50 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                                >
+                                  <X size={12} />
+                                </button>
+                                <div className="absolute bottom-2 left-0 right-0 text-center">
+                                  <span className="font-serif-display text-[10px] opacity-30 italic">
+                                    {format(currentDate, 'MMM d, yyyy')}
+                                  </span>
+                                </div>
+                              </motion.div>
+                            ))
+                          ) : (
+                            <label className="w-full h-32 border-2 border-dashed border-journal-accent/10 rounded-2xl flex flex-col items-center justify-center gap-2 cursor-pointer hover:bg-journal-accent/5 transition-colors">
+                              <ImageIcon size={24} className="opacity-20" />
+                              <span className="text-[10px] uppercase tracking-widest opacity-40">Capture a moment</span>
+                              <input 
+                                type="file" 
+                                accept="image/*" 
+                                multiple 
+                                className="hidden" 
+                                onChange={handlePhotoUpload}
+                              />
+                            </label>
+                          )}
+                        </div>
+                      </section>
+
                       {/* Page Number */}
                       <div className="absolute bottom-6 left-1/2 -translate-x-1/2 text-[10px] uppercase tracking-widest opacity-20 font-serif-display">
                         Page {getDayOfYear(currentDate)}
@@ -831,6 +1240,118 @@ export default function App() {
                       <h2 className="font-serif-display text-3xl mb-8 italic text-center">Journal Settings</h2>
                       
                       <div className="space-y-10">
+                        {/* Cloud Sync */}
+                        <section>
+                          <h3 className="text-xs uppercase tracking-widest font-bold opacity-40 mb-4 flex items-center gap-2">
+                            <RefreshCw size={14} className={isSyncing ? "animate-spin" : ""} />
+                            Cloud Sync (Supabase)
+                          </h3>
+                          <div className="p-4 bg-journal-accent/5 rounded-xl space-y-4">
+                            {!isSupabaseConfigured ? (
+                              <div className="text-center py-4">
+                                <p className="text-xs text-red-500/60 italic mb-2">Supabase is not configured.</p>
+                                <p className="text-[10px] opacity-50 leading-relaxed">
+                                  Please add <code className="bg-journal-accent/10 px-1 rounded">VITE_SUPABASE_URL</code> and <code className="bg-journal-accent/10 px-1 rounded">VITE_SUPABASE_ANON_KEY</code> to the <strong>Settings &gt; Secrets</strong> menu in AI Studio.
+                                </p>
+                              </div>
+                            ) : user ? (
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <p className="text-sm font-medium">Connected as</p>
+                                  <p className="text-[10px] opacity-50">{user.email}</p>
+                                </div>
+                                <button 
+                                  onClick={handleLogout}
+                                  className="px-4 py-2 bg-journal-accent/10 hover:bg-journal-accent/20 rounded-lg text-xs uppercase tracking-widest transition-colors"
+                                >
+                                  Logout
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="space-y-4">
+                                <p className="text-xs opacity-60 italic text-center">Connect to Supabase to sync your journal across devices.</p>
+                                
+                                <div className="space-y-3">
+                                  <input 
+                                    type="email"
+                                    placeholder="Email Address"
+                                    value={authEmail}
+                                    onChange={(e) => setAuthEmail(e.target.value)}
+                                    className="w-full bg-journal-accent/5 border-none rounded-lg p-3 text-sm focus:outline-none"
+                                  />
+                                  <input 
+                                    type="password"
+                                    placeholder="Password"
+                                    value={authPassword}
+                                    onChange={(e) => setAuthPassword(e.target.value)}
+                                    className="w-full bg-journal-accent/5 border-none rounded-lg p-3 text-sm focus:outline-none"
+                                  />
+                                </div>
+
+                                <div className="flex flex-col gap-2">
+                                  {authMode === 'login' ? (
+                                    <>
+                                      <button 
+                                        onClick={handleLogin}
+                                        disabled={isSyncing}
+                                        className="w-full py-3 bg-journal-accent text-white rounded-xl text-xs uppercase tracking-widest font-bold hover:scale-[1.02] transition-transform disabled:opacity-50"
+                                      >
+                                        {isSyncing ? 'Logging in...' : 'Login'}
+                                      </button>
+                                      <div className="flex justify-between px-1">
+                                        <button 
+                                          onClick={() => setAuthMode('signup')}
+                                          className="text-[10px] uppercase tracking-widest opacity-40 hover:opacity-100 transition-opacity"
+                                        >
+                                          Sign Up
+                                        </button>
+                                        <button 
+                                          onClick={() => setAuthMode('reset')}
+                                          className="text-[10px] uppercase tracking-widest opacity-40 hover:opacity-100 transition-opacity"
+                                        >
+                                          Forgot Password?
+                                        </button>
+                                      </div>
+                                    </>
+                                  ) : authMode === 'signup' ? (
+                                    <>
+                                      <button 
+                                        onClick={handleSignUp}
+                                        disabled={isSyncing}
+                                        className="w-full py-3 bg-journal-accent text-white rounded-xl text-xs uppercase tracking-widest font-bold hover:scale-[1.02] transition-transform disabled:opacity-50"
+                                      >
+                                        {isSyncing ? 'Creating Account...' : 'Sign Up'}
+                                      </button>
+                                      <button 
+                                        onClick={() => setAuthMode('login')}
+                                        className="text-[10px] uppercase tracking-widest opacity-40 hover:opacity-100 transition-opacity"
+                                      >
+                                        Already have an account? Login
+                                      </button>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <button 
+                                        onClick={user ? handleUpdatePassword : handleResetPassword}
+                                        disabled={isSyncing}
+                                        className="w-full py-3 bg-journal-accent text-white rounded-xl text-xs uppercase tracking-widest font-bold hover:scale-[1.02] transition-transform disabled:opacity-50"
+                                      >
+                                        {isSyncing ? 'Processing...' : (user ? 'Update Password' : 'Send Reset Link')}
+                                      </button>
+                                      <button 
+                                        onClick={() => setAuthMode('login')}
+                                        className="text-[10px] uppercase tracking-widest opacity-40 hover:opacity-100 transition-opacity"
+                                      >
+                                        Back to Login
+                                      </button>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </section>
+
                         {/* Notebook Config */}
                         <section>
                           <h3 className="text-xs uppercase tracking-widest font-bold opacity-40 mb-4 flex items-center gap-2">
@@ -865,7 +1386,7 @@ export default function App() {
                                     setEntries([]);
                                   }
                                   setNotebookConfig({ ...notebookConfig, year: parseInt(year) });
-                                  alert(`New notebook for ${year} created! ♡`);
+                                  showToast(`New notebook for ${year} created! ♡`);
                                 }
                               }}
                               className="w-full py-2 border border-journal-accent/20 rounded-lg text-xs uppercase tracking-widest hover:bg-journal-accent/5 transition-colors"
@@ -1010,6 +1531,19 @@ export default function App() {
                 </div>
               )}
             </div>
+          )}
+        </AnimatePresence>
+        <AnimatePresence>
+          {toast.show && (
+            <motion.div
+              initial={{ opacity: 0, y: 50 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 50 }}
+              className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 px-6 py-3 bg-journal-ink text-journal-paper rounded-full shadow-2xl flex items-center gap-3"
+            >
+              <Check size={16} className="text-emerald-400" />
+              <span className="text-sm font-medium tracking-wide">{toast.message}</span>
+            </motion.div>
           )}
         </AnimatePresence>
       </main>
