@@ -50,9 +50,9 @@ export const NotebookCover: React.FC<NotebookCoverProps> = ({ config, theme, onO
         </h1>
         
         <p className="text-sm italic opacity-60 mb-12 border-b border-journal-accent/20 pb-2 px-4">
-          Most advanced quality
+          A sacred space for your inner light 💫
           <br />
-          Gives best writing features
+          To reflect, to heal, and to grow 🌱
         </p>
 
         <div className="mt-12 space-y-8">
@@ -69,7 +69,7 @@ export const NotebookCover: React.FC<NotebookCoverProps> = ({ config, theme, onO
 
         <div className="mt-auto pt-12">
           <div className="border border-journal-accent/40 px-3 py-1 text-[10px] tracking-widest uppercase">
-            Apica CD11
+            Volume I
           </div>
         </div>
       </div>

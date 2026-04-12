@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { format, getDayOfYear, addDays, subDays, isSameDay, isToday } from 'date-fns';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -108,6 +108,7 @@ export default function App() {
   const [showReflection, setShowReflection] = useState(false);
   const [autoReflection, setAutoReflection] = useState(false);
   const [toast, setToast] = useState<{ show: boolean; message: string }>({ show: false, message: '' });
+  const lastSyncedDateRef = useRef<string | null>(null);
 
   const showToast = (message: string) => {
     setToast({ show: true, message });
@@ -305,6 +306,11 @@ export default function App() {
 
   useEffect(() => {
     const syncEntry = async () => {
+      const currentDateStr = format(currentDate, 'yyyy-MM-dd');
+      
+      // Only sync if the date has changed
+      if (lastSyncedDateRef.current === currentDateStr) return;
+      
       if (existingEntry) {
         setCurrentEntry(existingEntry);
         setCurrentMood(existingEntry.mood as Mood);
@@ -327,6 +333,8 @@ export default function App() {
           setEntries(prev => prev.map(e => e.id === existingEntry.id ? updatedEntry : e));
           setIsGenerating(false);
         }
+        
+        lastSyncedDateRef.current = currentDateStr;
       } else {
         // Reset for new day
         setIsGenerating(true);
@@ -343,6 +351,8 @@ export default function App() {
         setReflectionAnswer('');
         setShowReflection(false);
         setIsGenerating(false);
+        
+        lastSyncedDateRef.current = currentDateStr;
       }
     };
 
@@ -505,9 +515,19 @@ export default function App() {
   const handleRefreshAffirmations = async () => {
     if (!currentCategory) return;
     setIsGenerating(true);
-    const suggested = await generateAffirmations(currentCategory);
-    setCurrentEntry(prev => ({ ...prev, affirmations: suggested }));
-    setIsGenerating(false);
+    try {
+      const suggested = await generateAffirmations(currentCategory);
+      setCurrentEntry(prev => ({ ...prev, affirmations: suggested }));
+      
+      if (existingEntry) {
+        const updatedEntry = { ...existingEntry, affirmations: suggested };
+        setEntries(prev => prev.map(e => e.id === existingEntry.id ? updatedEntry : e));
+      }
+    } catch (error) {
+      console.error("Failed to refresh affirmations:", error);
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
   const handleRefreshMantra = async () => {
@@ -519,11 +539,21 @@ export default function App() {
         mantra: dailyMantra
       }));
 
+      let newQuestion = reflectionQuestion;
       // Also refresh the reflection question if it's currently active
       if (showReflection) {
         const gratitude = (currentEntry.gratitude as string[]) || ['', '', ''];
-        const q = await generateReflectionQuestion(gratitude, currentMood || 'peaceful');
-        setReflectionQuestion(q);
+        newQuestion = await generateReflectionQuestion(gratitude, currentMood || 'peaceful');
+        setReflectionQuestion(newQuestion);
+      }
+      
+      if (existingEntry) {
+        const updatedEntry = { 
+          ...existingEntry, 
+          mantra: dailyMantra,
+          reflectionQuestion: newQuestion || undefined
+        };
+        setEntries(prev => prev.map(e => e.id === existingEntry.id ? updatedEntry : e));
       }
       
       showToast('Mantra and reflection refreshed. ♡');
@@ -645,6 +675,11 @@ export default function App() {
       const q = await generateReflectionQuestion(gratitude, currentMood);
       setReflectionQuestion(q);
       setShowReflection(true);
+      
+      if (existingEntry) {
+        const updatedEntry = { ...existingEntry, reflectionQuestion: q };
+        setEntries(prev => prev.map(e => e.id === existingEntry.id ? updatedEntry : e));
+      }
     } catch (error) {
       console.error("Failed to generate reflection:", error);
     } finally {
@@ -918,7 +953,7 @@ export default function App() {
                       <div className="absolute bottom-4 right-4 w-8 h-8 border-b border-r border-journal-accent/20 rounded-br-sm pointer-events-none" />
 
                       {/* Header */}
-                      <div className="flex justify-between items-start mb-12 border-b border-journal-accent/10 pb-6">
+                      <div className="flex justify-between items-start mb-8 border-b border-journal-accent/10 pb-4">
                         <div>
                           <h1 className="font-serif-display text-2xl sm:text-3xl italic">
                             {format(currentDate, 'EEEE do MMMM yyyy')} ♡
@@ -1043,28 +1078,6 @@ export default function App() {
                         </div>
                       </section>
 
-                      {/* Reflection */}
-                      {showReflection && reflectionQuestion && (
-                        <div className="mb-12 p-6 border border-journal-accent/10 rounded-2xl italic text-center">
-                          <p className="text-journal-accent/70 mb-4">"{reflectionQuestion}"</p>
-                          <textarea 
-                            className="w-full bg-transparent border-none focus:outline-none text-center resize-none"
-                            placeholder="Write your heart here..."
-                            rows={3}
-                            value={reflectionAnswer}
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              setReflectionAnswer(val);
-                              // Auto-save reflection
-                              if (existingEntry) {
-                                const updatedEntry = { ...existingEntry, reflectionAnswer: val };
-                                setEntries(prev => prev.map(e => e.id === existingEntry.id ? updatedEntry : e));
-                              }
-                            }}
-                          />
-                        </div>
-                      )}
-
                       {/* Photos Section */}
                       <section className="mb-12">
                         <div className="flex justify-between items-center mb-6">
@@ -1134,27 +1147,78 @@ export default function App() {
                         </div>
                       </section>
 
+                      {/* Reflection Section */}
+                      <section className="mb-6">
+                        <div className="flex justify-between items-center mb-4">
+                          <h3 className="font-serif-display text-xl italic flex items-center gap-2">
+                            <Sparkles size={16} className="text-journal-accent" />
+                            Soulful Reflection
+                          </h3>
+                          <button 
+                            onClick={() => {
+                              if (showReflection) {
+                                setShowReflection(false);
+                              } else if (reflectionQuestion) {
+                                setShowReflection(true);
+                              } else {
+                                triggerReflection(currentEntry.gratitude as string[]);
+                              }
+                            }}
+                            className="p-1 hover:bg-journal-accent/5 rounded-full transition-colors"
+                          >
+                            <RefreshCw size={14} className={cn(isGenerating && "animate-spin")} />
+                          </button>
+                        </div>
+
+                        {!showReflection ? (
+                          <button 
+                            onClick={() => {
+                              if (reflectionQuestion) {
+                                setShowReflection(true);
+                              } else {
+                                triggerReflection(currentEntry.gratitude as string[]);
+                              }
+                            }}
+                            className="w-full py-4 border-2 border-dashed border-journal-accent/10 rounded-2xl flex flex-col items-center justify-center gap-2 hover:bg-journal-accent/5 transition-colors"
+                          >
+                            <Sparkles size={24} className="opacity-20" />
+                            <span className="text-[10px] uppercase tracking-widest opacity-40">Ask for a reflection?</span>
+                          </button>
+                        ) : (
+                          <div className="p-4 border border-journal-accent/10 rounded-2xl italic text-center relative">
+                            <button 
+                              onClick={() => setShowReflection(false)}
+                              className="absolute top-2 right-2 p-1 opacity-20 hover:opacity-100 transition-opacity"
+                            >
+                              <X size={14} />
+                            </button>
+                            <p className="text-journal-accent/70 mb-2 text-sm">"{reflectionQuestion}"</p>
+                            <textarea 
+                              className="w-full bg-transparent border-none focus:outline-none text-center resize-none"
+                              placeholder="Write your heart here..."
+                              rows={3}
+                              value={reflectionAnswer}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setReflectionAnswer(val);
+                                // Auto-save reflection
+                                if (existingEntry) {
+                                  const updatedEntry = { ...existingEntry, reflectionAnswer: val };
+                                  setEntries(prev => prev.map(e => e.id === existingEntry.id ? updatedEntry : e));
+                                }
+                              }}
+                            />
+                          </div>
+                        )}
+                      </section>
+
                       {/* Page Number */}
                       <div className="absolute bottom-6 left-1/2 -translate-x-1/2 text-[10px] uppercase tracking-widest opacity-20 font-serif-display">
                         Page {getDayOfYear(currentDate)}
                       </div>
 
                       {/* Footer Actions */}
-                      <div className="mt-auto pt-8 flex justify-between items-center">
-                        <button 
-                          onClick={() => {
-                            if (showReflection) {
-                              setShowReflection(false);
-                            } else if (reflectionQuestion) {
-                              setShowReflection(true);
-                            } else {
-                              triggerReflection(currentEntry.gratitude as string[]);
-                            }
-                          }}
-                          className="text-xs uppercase tracking-widest opacity-40 hover:opacity-100 transition-opacity"
-                        >
-                          {showReflection ? "Hide Reflection" : "Ask Reflection?"}
-                        </button>
+                      <div className="mt-auto pt-4 flex justify-center items-center">
                         <button 
                           onClick={handleSave}
                           className="bg-journal-accent text-journal-paper px-8 py-3 rounded-full flex items-center gap-2 hover:scale-105 transition-transform shadow-lg shadow-journal-accent/20"
