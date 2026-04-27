@@ -31,6 +31,7 @@ import { generateAffirmations, generateReflectionQuestion, generateMantraExplana
 import { NotebookCover } from './components/NotebookCover';
 import { supabase, isSupabaseConfigured } from './lib/supabase';
 import { User } from '@supabase/supabase-js';
+import TextareaAutosize from 'react-textarea-autosize';
 
 export default function App() {
   const [entries, setEntries] = useState<Entry[]>(() => {
@@ -593,6 +594,53 @@ export default function App() {
     }
   };
 
+  const handlePhotoReplace = (index: number, e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX_WIDTH = 800;
+        const MAX_HEIGHT = 800;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height) {
+          if (width > MAX_WIDTH) {
+            height *= MAX_WIDTH / width;
+            width = MAX_WIDTH;
+          }
+        } else {
+          if (height > MAX_HEIGHT) {
+            width *= MAX_HEIGHT / height;
+            height = MAX_HEIGHT;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx?.drawImage(img, 0, 0, width, height);
+        const base64 = canvas.toDataURL('image/jpeg', 0.8);
+
+        const newPhotos = [...(currentEntry.photos || [])];
+        newPhotos[index] = base64;
+        setCurrentEntry(prev => ({ ...prev, photos: newPhotos }));
+
+        // Auto-save
+        if (existingEntry) {
+          const updatedEntry = { ...existingEntry, photos: newPhotos };
+          setEntries(prev => prev.map(e => e.id === existingEntry.id ? updatedEntry : e));
+        }
+      };
+      img.src = reader.result as string;
+    };
+    reader.readAsDataURL(file);
+  };
+
   const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files) return;
@@ -1013,12 +1061,11 @@ export default function App() {
                           )}
                           {currentEntry.affirmations?.map((aff, i) => (
                             <div key={i} className="relative group">
-                              <input
-                                type="text"
+                              <TextareaAutosize
                                 value={aff}
                                 onChange={(e) => handleAffirmationChange(i, e.target.value)}
                                 placeholder="..."
-                                className="w-full bg-transparent border-b border-journal-accent/5 py-2 px-1 focus:outline-none focus:border-journal-accent/30 transition-colors italic text-lg"
+                                className="w-full bg-transparent border-b border-journal-accent/5 py-2 px-1 focus:outline-none focus:border-journal-accent/30 transition-colors italic text-lg resize-none overflow-hidden"
                               />
                               <div className="absolute left-[-20px] top-3 opacity-20 text-xs">{i + 1}</div>
                             </div>
@@ -1062,16 +1109,15 @@ export default function App() {
                           <Heart size={16} className="text-journal-accent" />
                           Gratitude
                         </h3>
-                        <div className="space-y-4">
+                        <div className="space-y-6">
                           {currentEntry.gratitude?.map((item, i) => (
-                            <div key={i} className="flex gap-4 items-center">
-                              <span className="text-journal-accent/30 font-serif-display italic">I am grateful for...</span>
-                              <input
-                                type="text"
+                            <div key={i} className="flex flex-col sm:flex-row sm:gap-4 sm:items-center">
+                              <span className="text-journal-accent/30 font-serif-display italic text-sm sm:text-base mb-1 sm:mb-0 shrink-0">I am grateful for...</span>
+                              <TextareaAutosize
                                 value={item}
                                 onChange={(e) => handleGratitudeChange(i, e.target.value)}
                                 placeholder="..."
-                                className="flex-1 bg-transparent border-b border-journal-accent/5 py-2 px-1 focus:outline-none focus:border-journal-accent/30 transition-colors"
+                                className="flex-1 bg-transparent border-b border-journal-accent/5 py-1 px-1 focus:outline-none focus:border-journal-accent/30 transition-colors resize-none overflow-hidden"
                               />
                             </div>
                           ))}
@@ -1118,12 +1164,23 @@ export default function App() {
                                     referrerPolicy="no-referrer"
                                   />
                                 </div>
-                                <button
-                                  onClick={() => handleRemovePhoto(i)}
-                                  className="absolute top-1 right-1 bg-black/50 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-                                >
-                                  <X size={12} />
-                                </button>
+                                <div className="absolute top-1 right-1 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                  <label className="bg-black/50 text-white p-1.5 rounded-full cursor-pointer hover:bg-black/70 transition-colors">
+                                    <RefreshCw size={12} />
+                                    <input 
+                                      type="file" 
+                                      accept="image/*" 
+                                      className="hidden" 
+                                      onChange={(e) => handlePhotoReplace(i, e)}
+                                    />
+                                  </label>
+                                  <button
+                                    onClick={() => handleRemovePhoto(i)}
+                                    className="bg-black/50 text-white p-1.5 rounded-full hover:bg-black/70 transition-colors"
+                                  >
+                                    <X size={12} />
+                                  </button>
+                                </div>
                                 <div className="absolute bottom-2 left-0 right-0 text-center">
                                   <span className="font-serif-display text-[10px] opacity-30 italic">
                                     {format(currentDate, 'MMM d, yyyy')}
@@ -1193,10 +1250,10 @@ export default function App() {
                               <X size={14} />
                             </button>
                             <p className="text-journal-accent/70 mb-2 text-sm">"{reflectionQuestion}"</p>
-                            <textarea 
+                            <TextareaAutosize 
                               className="w-full bg-transparent border-none focus:outline-none text-center resize-none"
                               placeholder="Write your heart here..."
-                              rows={3}
+                              minRows={3}
                               value={reflectionAnswer}
                               onChange={(e) => {
                                 const val = e.target.value;
