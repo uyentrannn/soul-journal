@@ -335,6 +335,7 @@ export default function App() {
             mantra: { ...existingEntry.mantra, context: explanation } 
           };
           setEntries(prev => prev.map(e => e.id === existingEntry.id ? updatedEntry : e));
+          syncSingleEntry(updatedEntry);
           setIsGenerating(false);
         }
         
@@ -516,6 +517,22 @@ export default function App() {
     if (view !== 'today') setView('today');
   };
 
+  const syncSingleEntry = async (entry: Entry) => {
+    if (user && isSupabaseConfigured) {
+      try {
+        const { error } = await supabase
+          .from('entries')
+          .upsert({
+            ...entry,
+            user_id: user.id
+          });
+        if (error) throw error;
+      } catch (error) {
+        console.error("Failed to sync entry to cloud:", error);
+      }
+    }
+  };
+
   const handleRefreshAffirmations = async () => {
     if (!currentCategory) return;
     setIsGeneratingAffirmations(true);
@@ -526,6 +543,7 @@ export default function App() {
       if (existingEntry) {
         const updatedEntry = { ...existingEntry, affirmations: suggested };
         setEntries(prev => prev.map(e => e.id === existingEntry.id ? updatedEntry : e));
+        await syncSingleEntry(updatedEntry);
       }
       showToast('Affirmations refreshed. ♡');
     } catch (error) {
@@ -550,6 +568,7 @@ export default function App() {
           mantra: dailyMantra
         };
         setEntries(prev => prev.map(e => e.id === existingEntry.id ? updatedEntry : e));
+        await syncSingleEntry(updatedEntry);
       }
       
       showToast('Mantra refreshed. ♡');
@@ -629,6 +648,7 @@ export default function App() {
         if (existingEntry) {
           const updatedEntry = { ...existingEntry, photos: newPhotos };
           setEntries(prev => prev.map(e => e.id === existingEntry.id ? updatedEntry : e));
+          syncSingleEntry(updatedEntry);
         }
       };
       img.src = reader.result as string;
@@ -677,10 +697,20 @@ export default function App() {
           // Compress to 0.7 quality to save significant space
           const compressedBase64 = canvas.toDataURL('image/jpeg', 0.7);
           
-          setCurrentEntry(prev => ({
-            ...prev,
-            photos: [...(prev.photos || []), compressedBase64]
-          }));
+          setCurrentEntry(prev => {
+            const nextPhotos = [...(prev.photos || []), compressedBase64];
+            
+            if (existingEntry) {
+              const updatedEntry = { ...existingEntry, photos: nextPhotos };
+              setEntries(prevEntries => prevEntries.map(e => e.id === existingEntry.id ? updatedEntry : e));
+              syncSingleEntry(updatedEntry);
+            }
+            
+            return {
+              ...prev,
+              photos: nextPhotos
+            };
+          });
         };
         img.src = reader.result as string;
       };
@@ -689,10 +719,17 @@ export default function App() {
   };
 
   const handleRemovePhoto = (index: number) => {
+    const updatedPhotos = (currentEntry.photos || []).filter((_, i) => i !== index);
     setCurrentEntry(prev => ({
       ...prev,
-      photos: (prev.photos || []).filter((_, i) => i !== index)
+      photos: updatedPhotos
     }));
+
+    if (existingEntry) {
+      const updatedEntry = { ...existingEntry, photos: updatedPhotos };
+      setEntries(prev => prev.map(e => e.id === existingEntry.id ? updatedEntry : e));
+      syncSingleEntry(updatedEntry);
+    }
   };
 
   const handleGratitudeChange = (index: number, value: string) => {
@@ -704,6 +741,7 @@ export default function App() {
     if (existingEntry) {
       const updatedEntry = { ...existingEntry, gratitude: newGratitude };
       setEntries(prev => prev.map(e => e.id === existingEntry.id ? updatedEntry : e));
+      syncSingleEntry(updatedEntry);
     }
 
     if (autoReflection && newGratitude.every(g => g.trim().length > 0) && !reflectionQuestion) {
@@ -722,6 +760,7 @@ export default function App() {
       if (existingEntry) {
         const updatedEntry = { ...existingEntry, reflectionQuestion: q };
         setEntries(prev => prev.map(e => e.id === existingEntry.id ? updatedEntry : e));
+        await syncSingleEntry(updatedEntry);
       }
       showToast('Reflection refreshed. ♡');
     } catch (error) {
@@ -740,6 +779,7 @@ export default function App() {
     if (existingEntry) {
       const updatedEntry = { ...existingEntry, affirmations: newAffirmations };
       setEntries(prev => prev.map(e => e.id === existingEntry.id ? updatedEntry : e));
+      syncSingleEntry(updatedEntry);
     }
   };
 
@@ -1265,6 +1305,7 @@ export default function App() {
                                 if (existingEntry) {
                                   const updatedEntry = { ...existingEntry, reflectionAnswer: val };
                                   setEntries(prev => prev.map(e => e.id === existingEntry.id ? updatedEntry : e));
+                                  syncSingleEntry(updatedEntry);
                                 }
                               }}
                             />
