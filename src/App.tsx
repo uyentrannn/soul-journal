@@ -537,7 +537,8 @@ export default function App() {
     if (!currentCategory) return;
     setIsGeneratingAffirmations(true);
     try {
-      const suggested = await generateAffirmations(currentCategory);
+      const currentAffs = currentEntry.affirmations || [];
+      const suggested = await generateAffirmations(currentCategory, currentAffs);
       setCurrentEntry(prev => ({ ...prev, affirmations: suggested }));
       
       if (existingEntry) {
@@ -556,7 +557,8 @@ export default function App() {
   const handleRefreshMantra = async () => {
     setIsGeneratingMantra(true);
     try {
-      const dailyMantra = await generateDailyMantra();
+      const currentMantraText = currentEntry.mantra?.text;
+      const dailyMantra = await generateDailyMantra(currentMantraText);
       setCurrentEntry(prev => ({ 
         ...prev, 
         mantra: dailyMantra
