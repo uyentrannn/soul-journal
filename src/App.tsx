@@ -97,7 +97,10 @@ export default function App() {
     photos: []
   });
   
-  const [isGenerating, setIsGenerating] = useState(false);
+  const [isGeneratingAffirmations, setIsGeneratingAffirmations] = useState(false);
+  const [isGeneratingMantra, setIsGeneratingMantra] = useState(false);
+  const [isGeneratingReflection, setIsGeneratingReflection] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false); // Used for total page actions like day change
   const [reflectionQuestion, setReflectionQuestion] = useState<string | null>(null);
   const [reflectionAnswer, setReflectionAnswer] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState('');
@@ -515,7 +518,7 @@ export default function App() {
 
   const handleRefreshAffirmations = async () => {
     if (!currentCategory) return;
-    setIsGenerating(true);
+    setIsGeneratingAffirmations(true);
     try {
       const suggested = await generateAffirmations(currentCategory);
       setCurrentEntry(prev => ({ ...prev, affirmations: suggested }));
@@ -524,15 +527,16 @@ export default function App() {
         const updatedEntry = { ...existingEntry, affirmations: suggested };
         setEntries(prev => prev.map(e => e.id === existingEntry.id ? updatedEntry : e));
       }
+      showToast('Affirmations refreshed. ♡');
     } catch (error) {
       console.error("Failed to refresh affirmations:", error);
     } finally {
-      setIsGenerating(false);
+      setIsGeneratingAffirmations(false);
     }
   };
 
   const handleRefreshMantra = async () => {
-    setIsGenerating(true);
+    setIsGeneratingMantra(true);
     try {
       const dailyMantra = await generateDailyMantra();
       setCurrentEntry(prev => ({ 
@@ -540,29 +544,20 @@ export default function App() {
         mantra: dailyMantra
       }));
 
-      let newQuestion = reflectionQuestion;
-      // Also refresh the reflection question if it's currently active
-      if (showReflection) {
-        const gratitude = (currentEntry.gratitude as string[]) || ['', '', ''];
-        newQuestion = await generateReflectionQuestion(gratitude, currentMood || 'peaceful');
-        setReflectionQuestion(newQuestion);
-      }
-      
       if (existingEntry) {
         const updatedEntry = { 
           ...existingEntry, 
-          mantra: dailyMantra,
-          reflectionQuestion: newQuestion || undefined
+          mantra: dailyMantra
         };
         setEntries(prev => prev.map(e => e.id === existingEntry.id ? updatedEntry : e));
       }
       
-      showToast('Mantra and reflection refreshed. ♡');
+      showToast('Mantra refreshed. ♡');
     } catch (error) {
       console.error("Failed to refresh mantra:", error);
-      showToast('Failed to refresh. ♡');
+      showToast('Failed to refresh mantra. ♡');
     } finally {
-      setIsGenerating(false);
+      setIsGeneratingMantra(false);
     }
   };
 
@@ -718,9 +713,9 @@ export default function App() {
 
   const triggerReflection = async (gratitude: string[]) => {
     if (!currentMood) return;
-    setIsGenerating(true);
+    setIsGeneratingReflection(true);
     try {
-      const q = await generateReflectionQuestion(gratitude, currentMood);
+      const q = await generateReflectionQuestion(gratitude, currentMood, reflectionQuestion || undefined);
       setReflectionQuestion(q);
       setShowReflection(true);
       
@@ -728,10 +723,11 @@ export default function App() {
         const updatedEntry = { ...existingEntry, reflectionQuestion: q };
         setEntries(prev => prev.map(e => e.id === existingEntry.id ? updatedEntry : e));
       }
+      showToast('Reflection refreshed. ♡');
     } catch (error) {
       console.error("Failed to generate reflection:", error);
     } finally {
-      setIsGenerating(false);
+      setIsGeneratingReflection(false);
     }
   };
 
@@ -1046,17 +1042,17 @@ export default function App() {
                           </h3>
                           <button 
                             onClick={handleRefreshAffirmations}
-                            disabled={isGenerating}
-                            className="p-1 hover:bg-journal-accent/5 rounded-full transition-colors disabled:opacity-30"
+                            disabled={isGeneratingAffirmations}
+                            className="p-3 -m-2 hover:bg-journal-accent/5 rounded-full transition-colors disabled:opacity-30"
                           >
-                            <RefreshCw size={14} className={cn(isGenerating && "animate-spin")} />
+                            <RefreshCw size={16} className={cn(isGeneratingAffirmations && "animate-spin")} />
                           </button>
                         </div>
-                        <div className="space-y-4 relative">
-                          {isGenerating && (!currentEntry.affirmations || currentEntry.affirmations.every(a => a === '')) && (
-                            <div className="absolute inset-0 bg-journal-paper/50 backdrop-blur-[1px] z-10 flex flex-col items-center justify-center gap-2 rounded-lg">
+                        <div className="space-y-4 relative min-h-[100px]">
+                          {isGeneratingAffirmations && (
+                            <div className="absolute inset-x-0 inset-y-[-10px] bg-journal-paper/60 backdrop-blur-[2px] z-20 flex flex-col items-center justify-center gap-2 rounded-xl border border-journal-accent/10 shadow-sm">
                               <RefreshCw size={24} className="text-journal-accent animate-spin" />
-                              <p className="text-[10px] uppercase tracking-widest opacity-60">Whispering affirmations...</p>
+                              <p className="text-[10px] uppercase tracking-widest font-bold text-journal-accent">Whispering affirmations...</p>
                             </div>
                           )}
                           {currentEntry.affirmations?.map((aff, i) => (
@@ -1074,7 +1070,13 @@ export default function App() {
                       </section>
 
                       {/* Daily Mantra */}
-                      <section className="mb-12 p-6 bg-journal-accent/5 rounded-2xl relative overflow-hidden">
+                      <section className="mb-12 p-6 bg-journal-accent/5 rounded-2xl relative overflow-hidden min-h-[150px]">
+                        {isGeneratingMantra && (
+                          <div className="absolute inset-0 bg-journal-paper/60 backdrop-blur-[2px] z-20 flex flex-col items-center justify-center gap-2 rounded-2xl border border-journal-accent/10 shadow-sm">
+                            <RefreshCw size={24} className="text-journal-accent animate-spin" />
+                            <p className="text-[10px] uppercase tracking-widest font-bold text-journal-accent">Seeking wisdom...</p>
+                          </div>
+                        )}
                         <Quote className="absolute top-[-10px] right-[-10px] opacity-5 w-24 h-24" />
                         <div className="flex justify-between items-center mb-4 relative z-10">
                           <h3 className="font-serif-display text-xl italic flex items-center gap-2">
@@ -1083,10 +1085,10 @@ export default function App() {
                           </h3>
                           <button 
                             onClick={handleRefreshMantra}
-                            disabled={isGenerating}
-                            className="p-1 hover:bg-journal-accent/5 rounded-full transition-colors disabled:opacity-30"
+                            disabled={isGeneratingMantra}
+                            className="p-3 -m-2 hover:bg-journal-accent/5 rounded-full transition-colors disabled:opacity-30"
                           >
-                            <RefreshCw size={14} className={cn(isGenerating && "animate-spin")} />
+                            <RefreshCw size={16} className={cn(isGeneratingMantra && "animate-spin")} />
                           </button>
                         </div>
                         <blockquote className="relative z-10">
@@ -1205,7 +1207,13 @@ export default function App() {
                       </section>
 
                       {/* Reflection Section */}
-                      <section className="mb-6">
+                      <section className="mb-6 relative min-h-[120px]">
+                        {isGeneratingReflection && (
+                          <div className="absolute inset-0 bg-journal-paper/60 backdrop-blur-[2px] z-20 flex flex-col items-center justify-center gap-2 rounded-2xl border border-journal-accent/10 shadow-sm">
+                            <RefreshCw size={24} className="text-journal-accent animate-spin" />
+                            <p className="text-[10px] uppercase tracking-widest font-bold text-journal-accent">Deepening reflection...</p>
+                          </div>
+                        )}
                         <div className="flex justify-between items-center mb-4">
                           <h3 className="font-serif-display text-xl italic flex items-center gap-2">
                             <Sparkles size={16} className="text-journal-accent" />
@@ -1213,17 +1221,12 @@ export default function App() {
                           </h3>
                           <button 
                             onClick={() => {
-                              if (showReflection) {
-                                setShowReflection(false);
-                              } else if (reflectionQuestion) {
-                                setShowReflection(true);
-                              } else {
-                                triggerReflection(currentEntry.gratitude as string[]);
-                              }
+                              const gratitude = (currentEntry.gratitude as string[]) || ['', '', ''];
+                              triggerReflection(gratitude);
                             }}
-                            className="p-1 hover:bg-journal-accent/5 rounded-full transition-colors"
+                            className="p-3 -m-2 hover:bg-journal-accent/5 rounded-full transition-colors"
                           >
-                            <RefreshCw size={14} className={cn(isGenerating && "animate-spin")} />
+                            <RefreshCw size={16} className={cn(isGeneratingReflection && "animate-spin")} />
                           </button>
                         </div>
 
@@ -1269,13 +1272,8 @@ export default function App() {
                         )}
                       </section>
 
-                      {/* Page Number */}
-                      <div className="absolute bottom-6 left-1/2 -translate-x-1/2 text-[10px] uppercase tracking-widest opacity-20 font-serif-display">
-                        Page {getDayOfYear(currentDate)}
-                      </div>
-
-                      {/* Footer Actions */}
-                      <div className="mt-auto pt-4 flex justify-center items-center">
+                      {/* Page Number & Footer Actions */}
+                      <div className="mt-auto pt-4 pb-4 flex flex-col items-center gap-4">
                         <button 
                           onClick={handleSave}
                           className="bg-journal-accent text-journal-paper px-8 py-3 rounded-full flex items-center gap-2 hover:scale-105 transition-transform shadow-lg shadow-journal-accent/20"
@@ -1283,6 +1281,10 @@ export default function App() {
                           <Save size={18} />
                           <span>Save Entry</span>
                         </button>
+
+                        <div className="text-[10px] uppercase tracking-widest opacity-20 font-serif-display">
+                          Page {getDayOfYear(currentDate)}
+                        </div>
                       </div>
                     </div>
                   )}
@@ -1356,14 +1358,16 @@ export default function App() {
                       )}
 
                       {/* Page Number */}
-                      <div className="absolute bottom-6 left-1/2 -translate-x-1/2 text-[10px] uppercase tracking-widest opacity-20 font-serif-display">
-                        Index
+                      <div className="mt-auto pt-4 pb-4 flex justify-center">
+                        <div className="text-[10px] uppercase tracking-widest opacity-20 font-serif-display">
+                          Index
+                        </div>
                       </div>
                     </div>
                   )}
 
                   {view === 'settings' && (
-                    <div className={cn("journal-page border-ornate texture-cream p-8 sm:p-12 rounded-lg page-shadow relative overflow-hidden")}>
+                    <div className={cn("journal-page border-ornate texture-cream p-8 sm:p-12 rounded-lg min-h-[80vh] flex flex-col page-shadow relative overflow-hidden")}>
                       <div className="notebook-inner-shadow absolute inset-y-0 left-0 w-8 pointer-events-none" />
                       <div className="page-curl" />
 
@@ -1631,17 +1635,19 @@ export default function App() {
                         </section>
                       </div>
                       
-                      {/* Page Number */}
-                      <div className="absolute bottom-6 left-1/2 -translate-x-1/2 text-[10px] uppercase tracking-widest opacity-20 font-serif-display">
-                        Preferences
-                      </div>
+                      {/* Page Number & Done Button */}
+                      <div className="mt-auto pt-4 pb-4 flex flex-col items-center gap-4">
+                        <button 
+                          onClick={() => setView('today')}
+                          className="w-full py-3 bg-journal-accent text-journal-paper rounded-full text-sm font-medium shadow-lg shadow-journal-accent/20 transition-transform hover:scale-[1.02]"
+                        >
+                          Done
+                        </button>
 
-                      <button 
-                        onClick={() => setView('today')}
-                        className="mt-12 w-full py-3 bg-journal-accent text-journal-paper rounded-full text-sm font-medium"
-                      >
-                        Done
-                      </button>
+                        <div className="text-[10px] uppercase tracking-widest opacity-20 font-serif-display">
+                          Preferences
+                        </div>
+                      </div>
                     </div>
                   )}
                 </motion.div>

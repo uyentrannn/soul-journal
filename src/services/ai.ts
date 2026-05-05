@@ -3,9 +3,18 @@ import { Mood, AffirmationCategory } from "../types";
 
 const getAI = () => {
   try {
-    const apiKey = typeof process !== 'undefined' ? process.env.GEMINI_API_KEY : undefined;
+    // Check for standard process.env (handled by Vite define or server environment)
+    let apiKey = typeof process !== 'undefined' ? process.env.GEMINI_API_KEY : undefined;
+    
+    // When Vite defines process.env.GEMINI_API_KEY as 'null' (string), handle it
+    if (apiKey === 'null' || apiKey === 'undefined') {
+      apiKey = undefined;
+    }
+
     if (!apiKey) {
-      console.error("GEMINI_API_KEY is missing. Please configure it in the Secrets panel.");
+      if (typeof window !== 'undefined') {
+        console.warn("GEMINI_API_KEY is missing. Using soulful fallbacks. ♡");
+      }
       return null;
     }
     return new GoogleGenAI({ apiKey });
@@ -15,14 +24,34 @@ const getAI = () => {
   }
 };
 
+const DEFAULT_AFFIRMATIONS = [
+  ["I am worthy of all the good things coming my way.", "I grow stronger and wiser every single day.", "I am at peace with my past and excited for my future."],
+  ["I choose to be kind to myself and others.", "My potential is limitless and my heart is open.", "I am a beacon of light in a beautiful world."],
+  ["Every breath I take fills me with peace.", "I trust the journey even when I cannot see the path.", "I am resilient, brave, and enough as I am."]
+];
+
+const DEFAULT_MANTRAS = [
+  {
+    text: "The happiness of your life depends upon the quality of your thoughts.",
+    author: "Marcus Aurelius",
+    context: "A reminder that our internal perspective shapes our external reality."
+  },
+  {
+    text: "Be patient toward all that is unresolved in your heart.",
+    author: "Rainer Maria Rilke",
+    context: "Trusting the process of growth and the beauty of questions."
+  },
+  {
+    text: "What you seek is seeking you.",
+    author: "Rumi",
+    context: "The deep connection between our desires and our destiny."
+  }
+];
+
 export async function generateAffirmations(category: AffirmationCategory) {
   const ai = getAI();
   if (!ai) {
-    return [
-      "I am worthy of all the good things coming my way.",
-      "I grow stronger and wiser every single day.",
-      "I am at peace with my past and excited for my future."
-    ];
+    return DEFAULT_AFFIRMATIONS[Math.floor(Math.random() * DEFAULT_AFFIRMATIONS.length)];
   }
 
   try {
@@ -48,15 +77,11 @@ export async function generateAffirmations(category: AffirmationCategory) {
     return JSON.parse(cleanedText) as string[];
   } catch (error) {
     console.error("Error generating affirmations:", error);
-    return [
-      "I am worthy of all the good things coming my way.",
-      "I grow stronger and wiser every single day.",
-      "I am at peace with my past and excited for my future."
-    ];
+    return DEFAULT_AFFIRMATIONS[Math.floor(Math.random() * DEFAULT_AFFIRMATIONS.length)];
   }
 }
 
-export async function generateReflectionQuestion(gratitude: string[], mood: Mood) {
+export async function generateReflectionQuestion(gratitude: string[], mood: Mood, previousQuestion?: string) {
   const ai = getAI();
   if (!ai) return "What small beauty did you notice today that you want to carry into tomorrow?";
 
@@ -65,7 +90,7 @@ export async function generateReflectionQuestion(gratitude: string[], mood: Mood
       model: "gemini-3-flash-preview",
       contents: `The user is feeling ${mood}. They are grateful for: "${gratitude.join(", ")}". 
       Ask one unique, gentle, and mood-specific reflection question to help them explore these feelings further. 
-      Ensure the question is different from standard ones. 
+      ${previousQuestion ? `IMPORTANT: Ensure the question is COMPLETELY DIFFERENT from this previous one: "${previousQuestion}".` : 'Ensure the question is different from standard ones.'}
       Keep it short, poetic, and wise.`,
     });
 
@@ -95,11 +120,7 @@ export async function generateMantraExplanation(quote: string, author: string) {
 export async function generateDailyMantra() {
   const ai = getAI();
   if (!ai) {
-    return {
-      text: "The happiness of your life depends upon the quality of your thoughts.",
-      author: "Marcus Aurelius",
-      context: "A reminder that our internal perspective shapes our external reality."
-    };
+    return DEFAULT_MANTRAS[Math.floor(Math.random() * DEFAULT_MANTRAS.length)];
   }
 
   try {
@@ -130,10 +151,6 @@ export async function generateDailyMantra() {
     return JSON.parse(cleanedText) as { text: string; author: string; context: string };
   } catch (error) {
     console.error("Error generating daily mantra:", error);
-    return {
-      text: "The happiness of your life depends upon the quality of your thoughts.",
-      author: "Marcus Aurelius",
-      context: "A reminder that our internal perspective shapes our external reality."
-    };
+    return DEFAULT_MANTRAS[Math.floor(Math.random() * DEFAULT_MANTRAS.length)];
   }
 }
