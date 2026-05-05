@@ -3,11 +3,12 @@ import { Mood, AffirmationCategory } from "../types";
 
 const getAI = () => {
   try {
-    // Check for standard process.env (handled by Vite define or server environment)
-    let apiKey = typeof process !== 'undefined' ? process.env.GEMINI_API_KEY : undefined;
+    // In Vite, process.env.GEMINI_API_KEY is replaced by a string value during build
+    // We also check for VITE_ prefixed version as a fallback for standard Vite deployments
+    let apiKey = process.env.GEMINI_API_KEY || (import.meta as any).env?.VITE_GEMINI_API_KEY;
     
-    // When Vite defines process.env.GEMINI_API_KEY as 'null' (string), handle it
-    if (apiKey === 'null' || apiKey === 'undefined') {
+    // Handle cases where Vite defines it as 'null' or 'undefined' (common if env var is missing during build)
+    if (apiKey === 'null' || apiKey === 'undefined' || !apiKey) {
       apiKey = undefined;
     }
 
