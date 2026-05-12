@@ -1,5 +1,20 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { format, getDayOfYear, addDays, subDays, isSameDay, isToday } from 'date-fns';
+import { 
+  format, 
+  getDayOfYear, 
+  addDays, 
+  subDays, 
+  isSameDay, 
+  isToday, 
+  startOfMonth, 
+  endOfMonth, 
+  eachDayOfInterval, 
+  isSameMonth, 
+  addMonths, 
+  subMonths, 
+  startOfWeek, 
+  endOfWeek 
+} from 'date-fns';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Book, 
@@ -80,8 +95,9 @@ export default function App() {
     }
   });
 
-  const [view, setView] = useState<'cover' | 'today' | 'history' | 'mood-check' | 'category-select' | 'settings'>('cover');
+  const [view, setView] = useState<'cover' | 'today' | 'history' | 'mood-check' | 'category-select' | 'settings' | 'calendar'>('cover');
   const [currentDate, setCurrentDate] = useState(new Date());
+  const [calendarMonth, setCalendarMonth] = useState(new Date());
   const [direction, setDirection] = useState(0); // -1 for left, 1 for right
   
   const [currentMood, setCurrentMood] = useState<Mood | null>(null);
@@ -303,6 +319,15 @@ export default function App() {
     }
   };
 
+  const handlePrevMonth = () => setCalendarMonth(prev => subMonths(prev, 1));
+  const handleNextMonth = () => setCalendarMonth(prev => addMonths(prev, 1));
+
+  const calendarDays = useMemo(() => {
+    const start = startOfWeek(startOfMonth(calendarMonth));
+    const end = endOfWeek(endOfMonth(calendarMonth));
+    return eachDayOfInterval({ start, end });
+  }, [calendarMonth]);
+
   const dateStr = format(currentDate, 'yyyy-MM-dd');
   const existingEntry = useMemo(() => 
     entries.find(e => isSameDay(new Date(e.date), currentDate)),
@@ -398,6 +423,12 @@ export default function App() {
 
   const handleMoodSelect = (mood: Mood) => {
     setCurrentMood(mood);
+    if (existingEntry) {
+      const updatedEntry = { ...existingEntry, mood };
+      setEntries(prev => prev.map(e => e.id === existingEntry.id ? updatedEntry : e));
+      setCurrentEntry(updatedEntry);
+      syncSingleEntry(updatedEntry);
+    }
     setView('category-select');
   };
 
@@ -407,25 +438,39 @@ export default function App() {
     
     setIsGenerating(true);
     try {
-      const suggested = await generateAffirmations(category);
+      const currentAffs = existingEntry?.affirmations || [];
+      const suggested = await generateAffirmations(category, currentAffs);
       
-      const newEntry: Entry = {
-        id: generateId(),
-        date: currentDate.toISOString(),
-        mood: currentMood!,
-        category,
-        affirmations: suggested,
-        mantra: currentEntry.mantra as any,
-        gratitude: currentEntry.gratitude as string[],
-        reflectionQuestion: reflectionQuestion || undefined,
-        reflectionAnswer: reflectionAnswer || '',
-        photos: []
-      };
+      if (existingEntry) {
+        const updatedEntry = { 
+          ...existingEntry, 
+          category,
+          affirmations: suggested
+        };
+        setEntries(prev => prev.map(e => e.id === existingEntry.id ? updatedEntry : e));
+        setCurrentEntry(updatedEntry);
+        await syncSingleEntry(updatedEntry);
+        showToast('Category updated and affirmations refreshed. ♡');
+      } else {
+        const newEntry: Entry = {
+          id: generateId(),
+          date: currentDate.toISOString(),
+          mood: currentMood!,
+          category,
+          affirmations: suggested,
+          mantra: currentEntry.mantra as any,
+          gratitude: currentEntry.gratitude as string[],
+          reflectionQuestion: reflectionQuestion || undefined,
+          reflectionAnswer: reflectionAnswer || '',
+          photos: []
+        };
 
-      setEntries(prev => [newEntry, ...prev]);
-      setCurrentEntry(newEntry);
+        setEntries(prev => [newEntry, ...prev]);
+        setCurrentEntry(newEntry);
+      }
     } catch (error) {
       console.error("Failed to generate affirmations:", error);
+      showToast('Failed to refresh affirmations. ♡');
     } finally {
       setIsGenerating(false);
     }
@@ -444,9 +489,10 @@ export default function App() {
       // If logged in, upload base64 photos to Supabase Storage
       if (user && isSupabaseConfigured) {
         showToast('Syncing with cloud... ♡');
+        
+        // Upload Photos
         const uploadedPhotos = await Promise.all(
           photosToSave.map(async (photo) => {
-            // Only upload if it's a base64 string (newly added)
             if (photo.startsWith('data:image')) {
               const url = await uploadPhotoToSupabase(photo, entryId);
               return url || photo;
@@ -615,7 +661,7 @@ export default function App() {
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onloadend = () => {
+    reader.onload = () => {
       const img = new Image();
       img.onload = () => {
         const canvas = document.createElement('canvas');
@@ -640,25 +686,32 @@ export default function App() {
         canvas.height = height;
         const ctx = canvas.getContext('2d');
         ctx?.drawImage(img, 0, 0, width, height);
-        const base64 = canvas.toDataURL('image/jpeg', 0.8);
+        
+        // Consistent 0.7 quality
+        const compressedBase64 = canvas.toDataURL('image/jpeg', 0.7);
 
-        const newPhotos = [...(currentEntry.photos || [])];
-        newPhotos[index] = base64;
-        setCurrentEntry(prev => ({ ...prev, photos: newPhotos }));
-
-        // Auto-save
-        if (existingEntry) {
-          const updatedEntry = { ...existingEntry, photos: newPhotos };
-          setEntries(prev => prev.map(e => e.id === existingEntry.id ? updatedEntry : e));
-          syncSingleEntry(updatedEntry);
-        }
+        setCurrentEntry(prev => {
+          const nextPhotos = [...(prev.photos || [])];
+          nextPhotos[index] = compressedBase64;
+          
+          if (existingEntry) {
+            const updatedEntry = { ...existingEntry, photos: nextPhotos };
+            setEntries(prevEntries => prevEntries.map(e => e.id === existingEntry.id ? updatedEntry : e));
+            syncSingleEntry(updatedEntry);
+          }
+          
+          return { ...prev, photos: nextPhotos };
+        });
+        
+        // Clear input
+        e.target.value = '';
       };
       img.src = reader.result as string;
     };
     reader.readAsDataURL(file);
   };
 
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files) return;
 
@@ -668,56 +721,74 @@ export default function App() {
       return;
     }
 
-    Array.from(files).slice(0, 3 - currentPhotos.length).forEach((file: File) => {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const img = new Image();
-        img.onload = () => {
-          const canvas = document.createElement('canvas');
-          const MAX_WIDTH = 800;
-          const MAX_HEIGHT = 800;
-          let width = img.width;
-          let height = img.height;
+    const availableSlots = 3 - currentPhotos.length;
+    const filesToProcess = Array.from(files).slice(0, availableSlots);
+    
+    // Clear input immediate to avoid any double-change events
+    const inputElement = e.target;
+    
+    try {
+      const processedPhotos = await Promise.all(filesToProcess.map((file: File) => {
+        return new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const img = new Image();
+            img.onload = () => {
+              const canvas = document.createElement('canvas');
+              const MAX_WIDTH = 800;
+              const MAX_HEIGHT = 800;
+              let width = img.width;
+              let height = img.height;
 
-          if (width > height) {
-            if (width > MAX_WIDTH) {
-              height *= MAX_WIDTH / width;
-              width = MAX_WIDTH;
-            }
-          } else {
-            if (height > MAX_HEIGHT) {
-              width *= MAX_HEIGHT / height;
-              height = MAX_HEIGHT;
-            }
-          }
+              if (width > height) {
+                if (width > MAX_WIDTH) {
+                  height *= MAX_WIDTH / width;
+                  width = MAX_WIDTH;
+                }
+              } else {
+                if (height > MAX_HEIGHT) {
+                  width *= MAX_HEIGHT / height;
+                  height = MAX_HEIGHT;
+                }
+              }
 
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext('2d');
-          ctx?.drawImage(img, 0, 0, width, height);
-          
-          // Compress to 0.7 quality to save significant space
-          const compressedBase64 = canvas.toDataURL('image/jpeg', 0.7);
-          
-          setCurrentEntry(prev => {
-            const nextPhotos = [...(prev.photos || []), compressedBase64];
-            
-            if (existingEntry) {
-              const updatedEntry = { ...existingEntry, photos: nextPhotos };
-              setEntries(prevEntries => prevEntries.map(e => e.id === existingEntry.id ? updatedEntry : e));
-              syncSingleEntry(updatedEntry);
-            }
-            
-            return {
-              ...prev,
-              photos: nextPhotos
+              canvas.width = width;
+              canvas.height = height;
+              const ctx = canvas.getContext('2d');
+              ctx?.drawImage(img, 0, 0, width, height);
+              const compressedBase64 = canvas.toDataURL('image/jpeg', 0.7);
+              resolve(compressedBase64);
             };
-          });
+            img.onerror = () => reject(new Error('Image failed to load'));
+            img.src = reader.result as string;
+          };
+          reader.onerror = () => reject(new Error('File failed to read'));
+          reader.readAsDataURL(file as unknown as Blob);
+        });
+      }));
+
+      if (processedPhotos.length === 0) return;
+
+      setCurrentEntry(prev => {
+        const nextPhotos = [...(prev.photos || []), ...processedPhotos].slice(0, 3);
+        
+        if (existingEntry) {
+          const updatedEntry = { ...existingEntry, photos: nextPhotos };
+          setEntries(prevEntries => prevEntries.map(e => e.id === existingEntry.id ? updatedEntry : e));
+          syncSingleEntry(updatedEntry);
+        }
+        
+        return {
+          ...prev,
+          photos: nextPhotos
         };
-        img.src = reader.result as string;
-      };
-      reader.readAsDataURL(file);
-    });
+      });
+
+      inputElement.value = '';
+    } catch (error) {
+      console.error("Error processing photos:", error);
+      showToast("Failed to process some photos. ♡");
+    }
   };
 
   const handleRemovePhoto = (index: number) => {
@@ -861,15 +932,26 @@ export default function App() {
           </button>
           
           <div className="flex items-center gap-6">
-            {!isSameDay(currentDate, new Date()) && (
+            {!isSameDay(currentDate, new Date()) && view === 'today' && (
               <button 
                 onClick={handleJumpToToday}
-                className="flex items-center gap-2 text-journal-accent opacity-60 hover:opacity-100 transition-opacity animate-bounce-subtle"
+                className="flex items-center gap-1 text-journal-accent opacity-40 hover:opacity-100 transition-opacity animate-bounce-subtle"
+                title="Back to Today"
               >
-                <Calendar size={18} />
-                <span className="hidden sm:inline text-xs uppercase tracking-widest">Today</span>
+                <Sparkles size={16} />
+                <span className="hidden lg:inline text-[9px] uppercase tracking-widest">Today</span>
               </button>
             )}
+            <button 
+              onClick={() => setView('calendar')}
+              className={cn(
+                "flex items-center gap-2 text-journal-accent transition-opacity",
+                view === 'calendar' ? "opacity-100 font-bold" : "opacity-50"
+              )}
+            >
+              <Calendar size={20} />
+              <span className="hidden sm:inline">Calendar</span>
+            </button>
             <button 
               onClick={() => setView('history')}
               className={cn(
@@ -989,6 +1071,15 @@ export default function App() {
                           </button>
                         ))}
                       </div>
+
+                      {existingEntry && (
+                        <button 
+                          onClick={() => setView('today')}
+                          className="mt-8 text-xs uppercase tracking-widest opacity-40 hover:opacity-100"
+                        >
+                          ✕ Cancel changes
+                        </button>
+                      )}
                     </div>
                   )}
 
@@ -1018,12 +1109,22 @@ export default function App() {
                           </button>
                         ))}
                       </div>
-                      <button 
-                        onClick={() => setView('mood-check')}
-                        className="mt-8 text-xs uppercase tracking-widest opacity-40 hover:opacity-100"
-                      >
-                        ← Back to mood
-                      </button>
+                      <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-6">
+                        <button 
+                          onClick={() => setView('mood-check')}
+                          className="text-xs uppercase tracking-widest opacity-40 hover:opacity-100"
+                        >
+                          ← Back to mood
+                        </button>
+                        {existingEntry && (
+                          <button 
+                            onClick={() => setView('today')}
+                            className="text-xs uppercase tracking-widest opacity-40 hover:opacity-100"
+                          >
+                            ✕ Cancel changes
+                          </button>
+                        )}
+                      </div>
                     </div>
                   )}
 
@@ -1059,16 +1160,24 @@ export default function App() {
                           ) : (
                             <>
                               {currentMood && (
-                                <div className="flex flex-col items-end">
-                                  <span className="text-2xl">{MOODS.find(m => m.type === currentMood)?.emoji}</span>
-                                  <span className="text-[10px] uppercase tracking-widest opacity-40">{currentMood}</span>
-                                </div>
+                                <button 
+                                  onClick={() => setView('mood-check')}
+                                  className="flex flex-col items-end group hover:bg-journal-accent/5 p-2 -m-2 rounded-xl transition-colors"
+                                  title="Change mood"
+                                >
+                                  <span className="text-2xl group-hover:scale-110 transition-transform">{MOODS.find(m => m.type === currentMood)?.emoji}</span>
+                                  <span className="text-[10px] uppercase tracking-widest opacity-40 group-hover:opacity-100">{currentMood}</span>
+                                </button>
                               )}
                               {currentCategory && (
-                                <div className="flex items-center gap-1 px-2 py-1 bg-journal-accent/5 rounded-full">
-                                  <span className="text-xs">{AFFIRMATION_CATEGORIES.find(c => c.type === currentCategory)?.icon}</span>
-                                  <span className="text-[8px] uppercase tracking-widest opacity-60">{currentCategory}</span>
-                                </div>
+                                <button 
+                                  onClick={() => setView('category-select')}
+                                  className="flex items-center gap-1 px-2 py-1 bg-journal-accent/5 hover:bg-journal-accent/10 rounded-full transition-colors group"
+                                  title="Change category"
+                                >
+                                  <span className="text-xs group-hover:rotate-12 transition-transform">{AFFIRMATION_CATEGORIES.find(c => c.type === currentCategory)?.icon}</span>
+                                  <span className="text-[8px] uppercase tracking-widest opacity-60 group-hover:opacity-100">{currentCategory}</span>
+                                </button>
                               )}
                             </>
                           )}
@@ -1208,7 +1317,7 @@ export default function App() {
                                     referrerPolicy="no-referrer"
                                   />
                                 </div>
-                                <div className="absolute top-1 right-1 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <div className="absolute top-1 right-1 flex gap-1 transition-opacity">
                                   <label className="bg-black/50 text-white p-1.5 rounded-full cursor-pointer hover:bg-black/70 transition-colors">
                                     <RefreshCw size={12} />
                                     <input 
@@ -1290,7 +1399,7 @@ export default function App() {
                           <div className="p-4 border border-journal-accent/10 rounded-2xl italic text-center relative">
                             <button 
                               onClick={() => setShowReflection(false)}
-                              className="absolute top-2 right-2 p-1 opacity-20 hover:opacity-100 transition-opacity"
+                              className="absolute top-2 right-2 p-1 opacity-60 hover:opacity-100 transition-opacity"
                             >
                               <X size={14} />
                             </button>
@@ -1404,6 +1513,115 @@ export default function App() {
                       <div className="mt-auto pt-4 pb-4 flex justify-center">
                         <div className="text-[10px] uppercase tracking-widest opacity-20 font-serif-display">
                           Index
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {view === 'calendar' && (
+                    <div className={cn(themeClasses, "relative overflow-hidden")}>
+                      <div className="notebook-inner-shadow absolute inset-y-0 left-0 w-8 pointer-events-none" />
+                      <div className="page-curl" />
+                      
+                      {/* Decorative Corners */}
+                      <div className="absolute top-4 left-4 w-8 h-8 border-t border-l border-journal-accent/20 rounded-tl-sm pointer-events-none" />
+                      <div className="absolute top-4 right-4 w-8 h-8 border-t border-r border-journal-accent/20 rounded-tr-sm pointer-events-none" />
+                      <div className="absolute bottom-4 left-4 w-8 h-8 border-b border-l border-journal-accent/20 rounded-bl-sm pointer-events-none" />
+                      <div className="absolute bottom-4 right-4 w-8 h-8 border-b border-r border-journal-accent/20 rounded-br-sm pointer-events-none" />
+
+                      <div className="flex justify-between items-center mb-8">
+                        <h2 className="font-serif-display text-3xl italic">Soul Calendar</h2>
+                        <div className="flex items-center gap-4">
+                          <button 
+                            onClick={handlePrevMonth}
+                            className="p-2 hover:bg-journal-accent/5 rounded-full transition-colors"
+                          >
+                            <ChevronLeft size={20} />
+                          </button>
+                          <span className="font-serif-display text-xl italic min-w-[140px] text-center">
+                            {format(calendarMonth, 'MMMM yyyy')}
+                          </span>
+                          <button 
+                            onClick={handleNextMonth}
+                            className="p-2 hover:bg-journal-accent/5 rounded-full transition-colors"
+                          >
+                            <ChevronRight size={20} />
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-7 gap-px bg-journal-accent/10 border border-journal-accent/10 rounded-2xl overflow-hidden mb-8">
+                        {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
+                          <div key={day} className="bg-journal-accent/5 py-4 text-center text-[10px] uppercase tracking-widest font-bold opacity-40">
+                            {day}
+                          </div>
+                        ))}
+                        {calendarDays.map((day, idx) => {
+                          const entryForDay = entries.find(e => isSameDay(new Date(e.date), day));
+                          const isCurrentMonth = isSameMonth(day, calendarMonth);
+                          const isSelected = isSameDay(day, currentDate);
+                          const isTodayDay = isToday(day);
+
+                          return (
+                            <button
+                              key={idx}
+                              onClick={() => {
+                                setCurrentDate(day);
+                                setView('today');
+                              }}
+                              className={cn(
+                                "aspect-square p-2 flex flex-col items-center justify-between transition-all hover:z-10 relative group",
+                                isCurrentMonth ? "bg-journal-paper" : "bg-journal-accent/[0.02] text-journal-accent/20",
+                                isSelected && "ring-2 ring-journal-accent/40 z-10",
+                                !isCurrentMonth && "pointer-events-none"
+                              )}
+                            >
+                              <span className={cn(
+                                "text-[10px] font-serif-display",
+                                isTodayDay && "bg-journal-accent text-journal-paper w-5 h-5 flex items-center justify-center rounded-full"
+                              )}>
+                                {format(day, 'd')}
+                              </span>
+                              
+                              {entryForDay && (
+                                <motion.div 
+                                  initial={{ scale: 0 }}
+                                  animate={{ scale: 1 }}
+                                  className="flex flex-col items-center gap-0.5"
+                                >
+                                  <span className="text-sm sm:text-lg transform group-hover:scale-125 transition-transform">
+                                    {MOODS.find(m => m.type === entryForDay.mood)?.emoji}
+                                  </span>
+                                  <div className="w-1 h-1 bg-journal-accent rounded-full opacity-40" />
+                                </motion.div>
+                              )}
+
+                              {isCurrentMonth && !entryForDay && (
+                                <Plus size={8} className="opacity-0 group-hover:opacity-20 transition-opacity" />
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      <div className="mt-8 flex flex-wrap gap-4 justify-center">
+                        {MOODS.map(m => {
+                          const count = entries.filter(e => e.mood === m.type && isSameMonth(new Date(e.date), calendarMonth)).length;
+                          if (count === 0) return null;
+                          return (
+                            <div key={m.type} className="flex items-center gap-2 bg-journal-accent/5 px-3 py-1.5 rounded-full text-[10px] uppercase tracking-widest opacity-60">
+                              <span>{m.emoji}</span>
+                              <span>{m.label}</span>
+                              <span className="font-bold opacity-40">({count})</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {/* Page Number */}
+                      <div className="mt-auto pt-4 pb-4 flex justify-center">
+                        <div className="text-[10px] uppercase tracking-widest opacity-20 font-serif-display">
+                          Calendar
                         </div>
                       </div>
                     </div>
