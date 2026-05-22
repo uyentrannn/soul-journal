@@ -367,12 +367,10 @@ export default function App() {
         lastSyncedDateRef.current = currentDateStr;
       } else {
         // Reset for new day
-        setIsGenerating(true);
-        const dailyMantra = await generateDailyMantra();
         setCurrentEntry({
           affirmations: ['', '', ''],
           gratitude: ['', '', ''],
-          mantra: dailyMantra,
+          mantra: { text: '', author: '', context: '' },
           photos: []
         });
         setCurrentMood(null);
@@ -380,7 +378,6 @@ export default function App() {
         setReflectionQuestion(null);
         setReflectionAnswer('');
         setShowReflection(false);
-        setIsGenerating(false);
         
         lastSyncedDateRef.current = currentDateStr;
       }
@@ -428,51 +425,93 @@ export default function App() {
       setEntries(prev => prev.map(e => e.id === existingEntry.id ? updatedEntry : e));
       setCurrentEntry(updatedEntry);
       syncSingleEntry(updatedEntry);
+      setView('today'); // Go straight back to the journal!
+    } else {
+      setView('category-select'); // Go to category selection for new entry
     }
-    setView('category-select');
   };
 
   const handleCategorySelect = async (category: AffirmationCategory) => {
     setCurrentCategory(category);
     setView('today'); // Navigate immediately
     
-    setIsGenerating(true);
+    const entryId = existingEntry?.id || generateId();
+    let entryToUpdate: Entry;
+
+    if (existingEntry) {
+      entryToUpdate = { 
+        ...existingEntry, 
+        category
+      };
+      setEntries(prev => prev.map(e => e.id === existingEntry.id ? entryToUpdate : e));
+      setCurrentEntry(entryToUpdate);
+    } else {
+      entryToUpdate = {
+        id: entryId,
+        date: currentDate.toISOString(),
+        mood: currentMood!,
+        category,
+        affirmations: ['', '', ''], // empty/loading state
+        mantra: { text: '', author: '', context: '' }, // empty/loading state
+        gratitude: currentEntry.gratitude as string[] || ['', '', ''],
+        reflectionQuestion: reflectionQuestion || undefined,
+        reflectionAnswer: reflectionAnswer || '',
+        photos: []
+      };
+      setEntries(prev => [entryToUpdate, ...prev]);
+      setCurrentEntry(entryToUpdate);
+    }
+
+    setIsGeneratingAffirmations(true);
+    if (!existingEntry) {
+      setIsGeneratingMantra(true);
+    }
+
     try {
       const currentAffs = existingEntry?.affirmations || [];
-      const suggested = await generateAffirmations(category, currentAffs);
+      const [suggested, dailyMantra] = await Promise.all([
+        generateAffirmations(category, currentAffs),
+        existingEntry ? Promise.resolve(null) : generateDailyMantra()
+      ]);
+      
+      setEntries(prev => {
+        const updated = prev.map(e => {
+          if (e.id === entryId) {
+            const updatedItem = { ...e, affirmations: suggested };
+            if (dailyMantra) {
+              updatedItem.mantra = dailyMantra;
+            }
+            return updatedItem;
+          }
+          return e;
+        });
+        const latest = updated.find(e => e.id === entryId);
+        if (latest) {
+          syncSingleEntry(latest);
+        }
+        return updated;
+      });
+      
+      setCurrentEntry(prev => {
+        if (prev.id === entryId) {
+          const updatedItem = { ...prev, affirmations: suggested };
+          if (dailyMantra) {
+            updatedItem.mantra = dailyMantra;
+          }
+          return updatedItem;
+        }
+        return prev;
+      });
       
       if (existingEntry) {
-        const updatedEntry = { 
-          ...existingEntry, 
-          category,
-          affirmations: suggested
-        };
-        setEntries(prev => prev.map(e => e.id === existingEntry.id ? updatedEntry : e));
-        setCurrentEntry(updatedEntry);
-        await syncSingleEntry(updatedEntry);
         showToast('Category updated and affirmations refreshed. ♡');
-      } else {
-        const newEntry: Entry = {
-          id: generateId(),
-          date: currentDate.toISOString(),
-          mood: currentMood!,
-          category,
-          affirmations: suggested,
-          mantra: currentEntry.mantra as any,
-          gratitude: currentEntry.gratitude as string[],
-          reflectionQuestion: reflectionQuestion || undefined,
-          reflectionAnswer: reflectionAnswer || '',
-          photos: []
-        };
-
-        setEntries(prev => [newEntry, ...prev]);
-        setCurrentEntry(newEntry);
       }
     } catch (error) {
-      console.error("Failed to generate affirmations:", error);
-      showToast('Failed to refresh affirmations. ♡');
+      console.error("Failed to generate category assets:", error);
+      showToast('Failed to complete entry setup. ♡');
     } finally {
-      setIsGenerating(false);
+      setIsGeneratingAffirmations(false);
+      setIsGeneratingMantra(false);
     }
   };
 
@@ -1150,36 +1189,50 @@ export default function App() {
                           </p>
                         </div>
                         <div className="flex flex-col items-end gap-2">
-                          {!existingEntry && !isToday(currentDate) ? (
+                          {!currentMood && !currentCategory ? (
                             <button 
                               onClick={() => setView('mood-check')}
-                              className="px-4 py-2 bg-journal-accent/10 hover:bg-journal-accent/20 rounded-full text-[10px] uppercase tracking-widest font-bold transition-colors"
+                              className="px-4 py-2 bg-journal-accent/10 hover:bg-journal-accent/20 rounded-full text-[10px] uppercase tracking-widest font-bold transition-colors shadow-sm"
                             >
                               Add Mood & Category
                             </button>
                           ) : (
-                            <>
-                              {currentMood && (
+                            <div className="flex flex-col items-end gap-2">
+                              {currentMood ? (
                                 <button 
                                   onClick={() => setView('mood-check')}
                                   className="flex flex-col items-end group hover:bg-journal-accent/5 p-2 -m-2 rounded-xl transition-colors"
                                   title="Change mood"
                                 >
-                                  <span className="text-2xl group-hover:scale-110 transition-transform">{MOODS.find(m => m.type === currentMood)?.emoji}</span>
+                                  <span className="text-2xl group-hover:scale-110 transition-transform">{MOODS.find(m => m.type === currentMood)?.emoji || '❔'}</span>
                                   <span className="text-[10px] uppercase tracking-widest opacity-40 group-hover:opacity-100">{currentMood}</span>
                                 </button>
+                              ) : (
+                                <button 
+                                  onClick={() => setView('mood-check')}
+                                  className="px-3 py-1 bg-journal-accent/10 hover:bg-journal-accent/20 rounded-full text-[9px] uppercase tracking-widest font-bold transition-colors"
+                                >
+                                  Select Mood
+                                </button>
                               )}
-                              {currentCategory && (
+                              {currentCategory ? (
                                 <button 
                                   onClick={() => setView('category-select')}
                                   className="flex items-center gap-1 px-2 py-1 bg-journal-accent/5 hover:bg-journal-accent/10 rounded-full transition-colors group"
                                   title="Change category"
                                 >
-                                  <span className="text-xs group-hover:rotate-12 transition-transform">{AFFIRMATION_CATEGORIES.find(c => c.type === currentCategory)?.icon}</span>
+                                  <span className="text-xs group-hover:rotate-12 transition-transform">{AFFIRMATION_CATEGORIES.find(c => c.type === currentCategory)?.icon || '📁'}</span>
                                   <span className="text-[8px] uppercase tracking-widest opacity-60 group-hover:opacity-100">{currentCategory}</span>
                                 </button>
+                              ) : (
+                                <button 
+                                  onClick={() => setView('category-select')}
+                                  className="px-3 py-1 bg-journal-accent/10 hover:bg-journal-accent/20 rounded-full text-[9px] uppercase tracking-widest font-bold transition-colors"
+                                >
+                                  Select Category
+                                </button>
                               )}
-                            </>
+                            </div>
                           )}
                         </div>
                       </div>
@@ -1236,17 +1289,21 @@ export default function App() {
                           </h3>
                           <button 
                             onClick={handleRefreshMantra}
-                            disabled={isGeneratingMantra}
+                            disabled={isGeneratingMantra || !currentCategory}
                             className="p-3 -m-2 hover:bg-journal-accent/5 rounded-full transition-colors disabled:opacity-30"
                           >
                             <RefreshCw size={16} className={cn(isGeneratingMantra && "animate-spin")} />
                           </button>
                         </div>
                         <blockquote className="relative z-10">
-                          <p className="text-lg leading-relaxed mb-4 font-serif-body">
-                            "{currentEntry.mantra?.text}"
-                          </p>
-                          <footer className="text-sm opacity-60 italic">— {currentEntry.mantra?.author}</footer>
+                          {currentEntry.mantra?.text && (
+                            <>
+                              <p className="text-lg leading-relaxed mb-4 font-serif-body">
+                                "{currentEntry.mantra.text}"
+                              </p>
+                              <footer className="text-sm opacity-60 italic">— {currentEntry.mantra.author}</footer>
+                            </>
+                          )}
                         </blockquote>
                         {currentEntry.mantra?.context && (
                           <div className="mt-4 pt-4 border-t border-journal-accent/10 text-xs opacity-60 leading-relaxed italic">
