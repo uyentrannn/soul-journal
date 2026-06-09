@@ -77,7 +77,7 @@ export async function generateAffirmations(category: AffirmationCategory, previo
 
   try {
     const response = await withRetry(() => ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model: "gemini-3.5-flash",
       contents: `Generate 3 short, powerful, and comforting personal affirmations for the category: "${category}". 
       ${previousAffirmations && previousAffirmations.length > 0 ? `IMPORTANT: Ensure these affirmations are COMPLETELY DIFFERENT from these previous ones: "${previousAffirmations.join('", "')}".` : ''}
       The tone should be similar to the "I AM" app - empowering, present-tense, and soulful. 
@@ -109,7 +109,7 @@ export async function generateReflectionQuestion(gratitude: string[], mood: Mood
 
   try {
     const response = await withRetry(() => ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model: "gemini-3.5-flash",
       contents: `The user is feeling ${mood}. They are grateful for: "${gratitude.join(", ")}". 
       Ask one unique, gentle, and mood-specific reflection question to help them explore these feelings further. 
       ${previousQuestion ? `IMPORTANT: Ensure the question is COMPLETELY DIFFERENT from this previous one: "${previousQuestion}".` : 'Ensure the question is different from standard ones.'}
@@ -128,7 +128,7 @@ export async function generateMantraExplanation(quote: string, author: string) {
 
   try {
     const response = await withRetry(() => ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model: "gemini-3.5-flash",
       contents: `Provide a brief, soulful, and practical explanation for this quote: "${quote}" by ${author}. 
       Explain how it can be applied to daily life for self-growth and peace. Keep it under 3 sentences.`,
     }));
@@ -147,7 +147,7 @@ export async function generateDailyMantra(previousMantra?: string) {
 
   try {
     const response = await withRetry(() => ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model: "gemini-3.5-flash",
       contents: `Generate a unique, soulful, and powerful daily mantra or quote from a famous philosopher (like Marcus Aurelius, Seneca, Rumi, Jung) or a modern self-help author (like Brianna Wiest, Viktor Frankl). 
       ${previousMantra ? `IMPORTANT: Ensure this is a COMPLETELY DIFFERENT quote from this previous one: "${previousMantra}".` : 'IMPORTANT: Ensure this is a different quote from common ones.'}
       Include the quote text, the author, and a brief (1-2 sentence) explanation of its soulful meaning.
