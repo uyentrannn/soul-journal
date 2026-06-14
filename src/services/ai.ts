@@ -146,13 +146,18 @@ export async function generateDailyMantra(previousMantra?: string) {
   }
 
   try {
+    const themes = ["resilience", "gratitude", "courage", "mindfulness", "letting go", "inner peace", "self-love", "purpose", "hope", "focus", "simplicity", "patience", "growth", "healing", "acceptance"];
+    const randomTheme = themes[Math.floor(Math.random() * themes.length)];
+
     const response = await withRetry(() => ai.models.generateContent({
       model: "gemini-3.5-flash",
       contents: `Generate a unique, soulful, and powerful daily mantra or quote from a famous philosopher (like Marcus Aurelius, Seneca, Rumi, Jung) or a modern self-help author (like Brianna Wiest, Viktor Frankl). 
+      Focus on the theme of: ${randomTheme}.
       ${previousMantra ? `IMPORTANT: Ensure this is a COMPLETELY DIFFERENT quote from this previous one: "${previousMantra}".` : 'IMPORTANT: Ensure this is a different quote from common ones.'}
       Include the quote text, the author, and a brief (1-2 sentence) explanation of its soulful meaning.
       Return it as a JSON object with keys: "text", "author", and "context".`,
       config: {
+        temperature: 0.9,
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
