@@ -604,7 +604,7 @@ export default function App() {
     setIsGeneratingMantra(true);
     try {
       const currentMantraText = currentEntry.mantra?.text;
-      const dailyMantra = await generateDailyMantra(currentMantraText);
+      const dailyMantra = await generateDailyMantra(currentMantraText, currentMood || undefined, currentCategory || undefined);
       setCurrentEntry(prev => ({ 
         ...prev, 
         mantra: dailyMantra
