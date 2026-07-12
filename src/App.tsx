@@ -135,15 +135,83 @@ export default function App() {
     setTimeout(() => setToast({ show: false, message: '' }), 3000);
   };
 
-  useEffect(() => {
+  const safeSaveEntries = (entriesToSave: Entry[]) => {
     try {
-      localStorage.setItem('soul_journal_entries', JSON.stringify(entries));
+      localStorage.setItem('soul_journal_entries', JSON.stringify(entriesToSave));
     } catch (error) {
       console.error("Failed to save entries to localStorage:", error);
       if (error instanceof Error && error.name === 'QuotaExceededError') {
-        showToast("Storage limit reached. Try removing some photos. ♡");
+        let prunedEntries = [...entriesToSave];
+        
+        // Find indices of entries containing local base64 photos, sorted oldest to newest
+        const itemsWithBase64 = prunedEntries
+          .map((entry, index) => ({ entry, index }))
+          .filter(item => item.entry.photos && item.entry.photos.some(p => p.startsWith('data:image')))
+          .sort((a, b) => new Date(a.entry.date).getTime() - new Date(b.entry.date).getTime());
+
+        let success = false;
+        
+        // Iteratively prune older photos until the payload fits
+        for (const item of itemsWithBase64) {
+          prunedEntries[item.index] = {
+            ...prunedEntries[item.index],
+            photos: [] // strip local photos to save space
+          };
+          
+          try {
+            localStorage.setItem('soul_journal_entries', JSON.stringify(prunedEntries));
+            success = true;
+            console.log(`Pruned old photos from entry ${item.entry.id} to fit under localStorage quota.`);
+            break;
+          } catch (retryError) {
+            // Still exceeding, continue
+          }
+        }
+
+        // If simple single-by-single pruning didn't succeed, do a bulk prune of all base64 photos
+        if (!success) {
+          prunedEntries = prunedEntries.map(e => {
+            if (e.photos && e.photos.some(p => p.startsWith('data:image'))) {
+              return { ...e, photos: [] };
+            }
+            return e;
+          });
+          try {
+            localStorage.setItem('soul_journal_entries', JSON.stringify(prunedEntries));
+            success = true;
+            console.log("Bulk pruned all base64 photos to resolve localStorage quota.");
+          } catch (bulkError) {
+            // Still failing
+          }
+        }
+
+        // Final fallback: slice to newest 100 entries
+        if (!success) {
+          try {
+            const trimmed = prunedEntries.slice(0, 100);
+            localStorage.setItem('soul_journal_entries', JSON.stringify(trimmed));
+            success = true;
+            console.log("Trimmed entries to newest 100 to fit under localStorage quota.");
+          } catch (finalError) {
+            console.error("Critical: Could not save even trimmed entries to localStorage:", finalError);
+          }
+        }
+
+        if (success) {
+          if (isSupabaseConfigured) {
+            showToast("Local storage full. Older local photos pruned to save space. Log in/Sync to use unlimited cloud storage! ♡");
+          } else {
+            showToast("Local storage limit reached. Older photos removed to free up space. ♡");
+          }
+        } else {
+          showToast("Storage full. Please delete some entries to save more. ♡");
+        }
       }
     }
+  };
+
+  useEffect(() => {
+    safeSaveEntries(entries);
   }, [entries]);
 
   useEffect(() => {
@@ -200,7 +268,7 @@ export default function App() {
       if (error) throw error;
       if (data) {
         setEntries(data);
-        localStorage.setItem('soul_journal_entries', JSON.stringify(data));
+        safeSaveEntries(data);
       }
     } catch (error) {
       console.error('Error fetching entries:', error);
@@ -604,7 +672,7 @@ export default function App() {
     setIsGeneratingMantra(true);
     try {
       const currentMantraText = currentEntry.mantra?.text;
-      const dailyMantra = await generateDailyMantra(currentMantraText, currentMood || undefined, currentCategory || undefined);
+      const dailyMantra = await generateDailyMantra(currentMantraText);
       setCurrentEntry(prev => ({ 
         ...prev, 
         mantra: dailyMantra
@@ -656,59 +724,83 @@ export default function App() {
     }
   };
 
-  const handlePhotoReplace = (index: number, e: React.ChangeEvent<HTMLInputElement>) => {
+  const compressAndResizeImage = (file: File, maxWidth = 500, maxHeight = 500, quality = 0.4): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          let width = img.width;
+          let height = img.height;
+
+          if (width > height) {
+            if (width > maxWidth) {
+              height *= maxWidth / width;
+              width = maxWidth;
+            }
+          } else {
+            if (height > maxHeight) {
+              width *= maxHeight / height;
+              height = maxHeight;
+            }
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx?.drawImage(img, 0, 0, width, height);
+          
+          // Using highly optimized quality (0.4) and resolution (500 max) to save ~90% local storage
+          const compressedBase64 = canvas.toDataURL('image/jpeg', quality);
+          resolve(compressedBase64);
+        };
+        img.onerror = () => reject(new Error('Image failed to load'));
+        img.src = reader.result as string;
+      };
+      reader.onerror = () => reject(new Error('File failed to read'));
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handlePhotoReplace = async (index: number, e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        const MAX_WIDTH = 800;
-        const MAX_HEIGHT = 800;
-        let width = img.width;
-        let height = img.height;
+    const inputElement = e.target;
 
-        if (width > height) {
-          if (width > MAX_WIDTH) {
-            height *= MAX_WIDTH / width;
-            width = MAX_WIDTH;
-          }
-        } else {
-          if (height > MAX_HEIGHT) {
-            width *= MAX_HEIGHT / height;
-            height = MAX_HEIGHT;
-          }
+    try {
+      // Compress immediately to standard offline formats
+      const compressedBase64 = await compressAndResizeImage(file);
+      
+      let finalPhotoPath = compressedBase64;
+      if (user && isSupabaseConfigured) {
+        showToast('Uploading to cloud... ♡');
+        const entryId = existingEntry?.id || generateId();
+        const url = await uploadPhotoToSupabase(compressedBase64, entryId);
+        if (url) {
+          finalPhotoPath = url;
         }
+      }
 
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        ctx?.drawImage(img, 0, 0, width, height);
+      setCurrentEntry(prev => {
+        const nextPhotos = [...(prev.photos || [])];
+        nextPhotos[index] = finalPhotoPath;
         
-        // Consistent 0.7 quality
-        const compressedBase64 = canvas.toDataURL('image/jpeg', 0.7);
-
-        setCurrentEntry(prev => {
-          const nextPhotos = [...(prev.photos || [])];
-          nextPhotos[index] = compressedBase64;
-          
-          if (existingEntry) {
-            const updatedEntry = { ...existingEntry, photos: nextPhotos };
-            setEntries(prevEntries => prevEntries.map(e => e.id === existingEntry.id ? updatedEntry : e));
-            syncSingleEntry(updatedEntry);
-          }
-          
-          return { ...prev, photos: nextPhotos };
-        });
+        if (existingEntry) {
+          const updatedEntry = { ...existingEntry, photos: nextPhotos };
+          setEntries(prevEntries => prevEntries.map(e => e.id === existingEntry.id ? updatedEntry : e));
+          syncSingleEntry(updatedEntry);
+        }
         
-        // Clear input
-        e.target.value = '';
-      };
-      img.src = reader.result as string;
-    };
-    reader.readAsDataURL(file);
+        return { ...prev, photos: nextPhotos };
+      });
+      
+      inputElement.value = '';
+    } catch (error) {
+      console.error("Error replacing photo:", error);
+      showToast("Failed to replace photo. ♡");
+    }
   };
 
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -723,54 +815,32 @@ export default function App() {
 
     const availableSlots = 3 - currentPhotos.length;
     const filesToProcess = Array.from(files).slice(0, availableSlots);
-    
-    // Clear input immediate to avoid any double-change events
     const inputElement = e.target;
     
     try {
+      // Process and compress each image
       const processedPhotos = await Promise.all(filesToProcess.map((file: File) => {
-        return new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => {
-            const img = new Image();
-            img.onload = () => {
-              const canvas = document.createElement('canvas');
-              const MAX_WIDTH = 800;
-              const MAX_HEIGHT = 800;
-              let width = img.width;
-              let height = img.height;
-
-              if (width > height) {
-                if (width > MAX_WIDTH) {
-                  height *= MAX_WIDTH / width;
-                  width = MAX_WIDTH;
-                }
-              } else {
-                if (height > MAX_HEIGHT) {
-                  width *= MAX_HEIGHT / height;
-                  height = MAX_HEIGHT;
-                }
-              }
-
-              canvas.width = width;
-              canvas.height = height;
-              const ctx = canvas.getContext('2d');
-              ctx?.drawImage(img, 0, 0, width, height);
-              const compressedBase64 = canvas.toDataURL('image/jpeg', 0.7);
-              resolve(compressedBase64);
-            };
-            img.onerror = () => reject(new Error('Image failed to load'));
-            img.src = reader.result as string;
-          };
-          reader.onerror = () => reject(new Error('File failed to read'));
-          reader.readAsDataURL(file as unknown as Blob);
-        });
+        return compressAndResizeImage(file);
       }));
 
       if (processedPhotos.length === 0) return;
 
+      const entryId = existingEntry?.id || generateId();
+
+      let finalPhotos: string[] = [];
+      if (user && isSupabaseConfigured) {
+        showToast('Uploading to cloud... ♡');
+        const uploadedUrls = await Promise.all(processedPhotos.map(async (base64) => {
+          const url = await uploadPhotoToSupabase(base64, entryId);
+          return url || base64;
+        }));
+        finalPhotos = uploadedUrls.filter(p => p !== null) as string[];
+      } else {
+        finalPhotos = processedPhotos;
+      }
+
       setCurrentEntry(prev => {
-        const nextPhotos = [...(prev.photos || []), ...processedPhotos].slice(0, 3);
+        const nextPhotos = [...(prev.photos || []), ...finalPhotos].slice(0, 3);
         
         if (existingEntry) {
           const updatedEntry = { ...existingEntry, photos: nextPhotos };

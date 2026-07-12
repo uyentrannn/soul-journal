@@ -139,36 +139,20 @@ export async function generateMantraExplanation(quote: string, author: string) {
   }
 }
 
-export async function generateDailyMantra(previousMantra?: string, mood?: string, category?: string) {
+export async function generateDailyMantra(previousMantra?: string) {
   const ai = getAI();
   if (!ai) {
     return DEFAULT_MANTRAS[Math.floor(Math.random() * DEFAULT_MANTRAS.length)];
   }
 
   try {
-    const themes = ["resilience", "gratitude", "courage", "mindfulness", "letting go", "inner peace", "self-love", "purpose", "hope", "focus", "simplicity", "patience", "growth", "healing", "acceptance"];
-    
-    let focusTheme = "";
-    if (mood && category) {
-      focusTheme = `The user is currently feeling "${mood}" and wants to focus on "${category}". Tailor the mantra to support and resonate with this state of mind.`;
-    } else if (mood) {
-      focusTheme = `The user is currently feeling "${mood}". Tailor the mantra to support and resonate with this mood.`;
-    } else if (category) {
-      focusTheme = `The user wants to focus on "${category}". Tailor the mantra to align with this category.`;
-    } else {
-      const randomTheme = themes[Math.floor(Math.random() * themes.length)];
-      focusTheme = `Focus on the theme of: ${randomTheme}.`;
-    }
-
     const response = await withRetry(() => ai.models.generateContent({
       model: "gemini-3.5-flash",
       contents: `Generate a unique, soulful, and powerful daily mantra or quote from a famous philosopher (like Marcus Aurelius, Seneca, Rumi, Jung) or a modern self-help author (like Brianna Wiest, Viktor Frankl). 
-      ${focusTheme}
       ${previousMantra ? `IMPORTANT: Ensure this is a COMPLETELY DIFFERENT quote from this previous one: "${previousMantra}".` : 'IMPORTANT: Ensure this is a different quote from common ones.'}
       Include the quote text, the author, and a brief (1-2 sentence) explanation of its soulful meaning.
       Return it as a JSON object with keys: "text", "author", and "context".`,
       config: {
-        temperature: 0.9,
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
