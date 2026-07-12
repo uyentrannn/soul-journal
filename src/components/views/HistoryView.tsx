@@ -63,33 +63,31 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto max-h-[50vh] pr-1 space-y-6">
+      <div className="space-y-6">
         {filteredEntries.length === 0 ? (
           <div className="text-center py-20 opacity-30 italic">
             No entries found. Start your journey today.
           </div>
         ) : (
-          <div className="space-y-6">
-            {filteredEntries.map((entry) => (
-              <div 
-                key={entry.id} 
-                className="p-6 border border-journal-accent/5 rounded-2xl hover:bg-journal-accent/5 transition-colors cursor-pointer group"
-                onClick={() => {
-                  setCurrentDate(new Date(entry.date));
-                  setView('today');
-                }}
-              >
-                <div className="flex justify-between items-start mb-4">
-                  <div>
-                    <h4 className="font-serif-display text-lg italic">{format(new Date(entry.date), 'EEEE, MMMM do')}</h4>
-                    <p className="text-[10px] uppercase tracking-widest opacity-40">Day {getDayOfYear(new Date(entry.date))}</p>
-                  </div>
-                  <span className="text-xl">{MOODS.find(m => m.type === entry.mood)?.emoji}</span>
+          filteredEntries.map((entry) => (
+            <div 
+              key={entry.id} 
+              className="p-6 border border-journal-accent/5 rounded-2xl hover:bg-journal-accent/5 transition-colors cursor-pointer group"
+              onClick={() => {
+                setCurrentDate(new Date(entry.date));
+                setView('today');
+              }}
+            >
+              <div className="flex justify-between items-start mb-4">
+                <div>
+                  <h4 className="font-serif-display text-lg italic">{format(new Date(entry.date), 'EEEE, MMMM do')}</h4>
+                  <p className="text-[10px] uppercase tracking-widest opacity-40">Day {getDayOfYear(new Date(entry.date))}</p>
                 </div>
-                <p className="text-sm italic opacity-70 line-clamp-1">"{entry.mantra.text}"</p>
+                <span className="text-xl">{MOODS.find(m => m.type === entry.mood)?.emoji}</span>
               </div>
-            ))}
-          </div>
+              <p className="text-sm italic opacity-70 line-clamp-1">"{entry.mantra.text}"</p>
+            </div>
+          ))
         )}
       </div>
 

@@ -68,7 +68,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
       <h2 className="font-serif-display text-3xl mb-8 italic text-center">Journal Settings</h2>
       
-      <div className="space-y-10 flex-1 overflow-y-auto pr-1">
+      <div className="space-y-10 flex-1">
         {/* Cloud Sync */}
         <section>
           <h3 className="text-xs uppercase tracking-widest font-bold opacity-40 mb-4 flex items-center gap-2">

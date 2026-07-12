@@ -116,7 +116,7 @@ export const JournalEditorView: React.FC<JournalEditorViewProps> = ({
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto max-h-[60vh] pr-1 space-y-12 pb-8">
+      <div className="flex-1 space-y-12 pb-8">
         {/* Affirmations */}
         <section>
           <div className="flex justify-between items-center mb-4">

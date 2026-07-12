@@ -116,20 +116,18 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
         })}
       </div>
 
-      <div className="flex-1 overflow-y-auto max-h-[25vh] pr-1">
-        <div className="flex flex-wrap gap-4 justify-center">
-          {MOODS.map(m => {
-            const count = entries.filter(e => e.mood === m.type && isSameMonth(new Date(e.date), calendarMonth)).length;
-            if (count === 0) return null;
-            return (
-              <div key={m.type} className="flex items-center gap-2 bg-journal-accent/5 px-3 py-1.5 rounded-full text-[10px] uppercase tracking-widest opacity-60">
-                <span>{m.emoji}</span>
-                <span>{m.label}</span>
-                <span className="font-bold opacity-40">({count})</span>
-              </div>
-            );
-          })}
-        </div>
+      <div className="flex flex-wrap gap-4 justify-center">
+        {MOODS.map(m => {
+          const count = entries.filter(e => e.mood === m.type && isSameMonth(new Date(e.date), calendarMonth)).length;
+          if (count === 0) return null;
+          return (
+            <div key={m.type} className="flex items-center gap-2 bg-journal-accent/5 px-3 py-1.5 rounded-full text-[10px] uppercase tracking-widest opacity-60">
+              <span>{m.emoji}</span>
+              <span>{m.label}</span>
+              <span className="font-bold opacity-40">({count})</span>
+            </div>
+          );
+        })}
       </div>
 
       {/* Page Number */}
